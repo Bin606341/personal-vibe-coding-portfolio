@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.npm-cache/
+test-results/
+playwright-report/
+
+# Local working artifacts
+.tmp-*/
+.tmp-*.log
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+playwright.config.js
+playwright.config.d.ts
+
+# Verification screenshots generated during local checks
+*-verify*.png
+home-chibi-*.png
+home-motion-frame-*.png
