@@ -36,6 +36,10 @@ export type ChargedShotResult = {
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
+export const getMovementSpeed = (baseSpeed: number, sprintHeld: boolean, sprintMultiplier = 1.45) => {
+  return Number((baseSpeed * (sprintHeld ? sprintMultiplier : 1)).toFixed(3));
+};
+
 export const movePlayer = (
   position: PlayerPosition,
   key: MovementKey,

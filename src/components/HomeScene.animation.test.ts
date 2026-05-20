@@ -1,75 +1,62 @@
 import { describe, expect, test } from 'vitest';
-import { getHomePlayerMotion, HOME_PLAYER_ANIMATION } from './HomeScene';
+import {
+  buildChargedShotPreview,
+  calculateChargePercent,
+  getLauncherChargePose,
+  toChargedLaunchVelocity,
+} from '../home/input';
 
-describe('home player basketball motion', () => {
-  test('uses a coordinated right-hand dribble with body compression at the low bounce', () => {
-    expect(HOME_PLAYER_ANIMATION.dribble.dominantHand).toBe('right');
-    expect(HOME_PLAYER_ANIMATION.dribble.bodyDrop).toBeGreaterThan(0.05);
-    expect(HOME_PLAYER_ANIMATION.dribble.shoulderLean).toBeGreaterThan(0.04);
-
-    const lowBounce = getHomePlayerMotion({
-      elapsed: 0,
-      isMoving: false,
-      charging: false,
-      shooting: false,
-      chargeMs: 0,
-      shotProgress: 0,
-    });
-    const highBounce = getHomePlayerMotion({
-      elapsed: Math.PI / HOME_PLAYER_ANIMATION.dribble.speed,
-      isMoving: false,
-      charging: false,
-      shooting: false,
-      chargeMs: 0,
-      shotProgress: 0,
-    });
-
-    expect(lowBounce.ballOffset.y).toBeLessThan(highBounce.ballOffset.y);
-    expect(lowBounce.rig.y).toBeLessThan(highBounce.rig.y);
-    expect(lowBounce.rightArm.x).toBeLessThan(highBounce.rightArm.x);
-    expect(lowBounce.leftArm.z).toBeGreaterThan(0);
-    expect(lowBounce.rightArm.z).toBeLessThan(0);
+describe('home game charge helpers', () => {
+  test('maps hold duration into a capped charge percent', () => {
+    expect(calculateChargePercent(0)).toBe(0);
+    expect(calculateChargePercent(600)).toBe(50);
+    expect(calculateChargePercent(1200)).toBe(100);
+    expect(calculateChargePercent(1600)).toBe(100);
   });
 
-  test('turns a charged shot into a set point and then an overhead follow-through', () => {
-    const setPoint = getHomePlayerMotion({
-      elapsed: 1,
-      isMoving: false,
-      charging: true,
-      shooting: false,
-      chargeMs: HOME_PLAYER_ANIMATION.shot.setPointMs,
-      shotProgress: 0,
-    });
-    const followThrough = getHomePlayerMotion({
-      elapsed: 1.2,
-      isMoving: false,
-      charging: false,
-      shooting: true,
-      chargeMs: 0,
-      shotProgress: 0.72,
-    });
+  test('turns charged release into a fixed shot direction with variable power', () => {
+    const origin = { x: 96, y: 240 };
+    const target = { x: 640, y: 180 };
+    const tap = toChargedLaunchVelocity(origin, target, 40);
+    const short = toChargedLaunchVelocity(origin, target, 240);
+    const medium = toChargedLaunchVelocity(origin, target, 600);
+    const full = toChargedLaunchVelocity(origin, target, 1200);
+    const tapSpeed = Math.hypot(tap.x, tap.y);
+    const shortSpeed = Math.hypot(short.x, short.y);
+    const mediumSpeed = Math.hypot(medium.x, medium.y);
+    const fullSpeed = Math.hypot(full.x, full.y);
 
-    expect(setPoint.ballOffset.y).toBeGreaterThan(1.55);
-    expect(setPoint.ballOffset.z).toBeGreaterThan(0.26);
-    expect(setPoint.rig.y).toBeLessThan(0);
-    expect(followThrough.ballOffset.y).toBeGreaterThan(setPoint.ballOffset.y);
-    expect(followThrough.rightArm.x).toBeLessThan(setPoint.rightArm.x);
-    expect(followThrough.leftLeg.x).toBeLessThan(0);
-    expect(followThrough.rightLeg.x).toBeLessThan(0);
+    expect(tap.x).toBeGreaterThan(0);
+    expect(tap.y).toBeLessThan(0);
+    expect(shortSpeed).toBeGreaterThan(tapSpeed);
+    expect(mediumSpeed).toBeGreaterThan(shortSpeed * 1.45);
+    expect(fullSpeed).toBeGreaterThan(shortSpeed);
+    expect(full.x / fullSpeed).toBeCloseTo(short.x / shortSpeed, 3);
+    expect(full.y / fullSpeed).toBeCloseTo(short.y / shortSpeed, 3);
   });
 
-  test('adds counter-rotation and opposite leg stride while moving', () => {
-    const moving = getHomePlayerMotion({
-      elapsed: 0.2,
-      isMoving: true,
-      charging: false,
-      shooting: false,
-      chargeMs: 0,
-      shotProgress: 0,
-    });
+  test('builds a short dashed shot guide in the same direction as the release', () => {
+    const origin = { x: 96, y: 240 };
+    const target = { x: 640, y: 180 };
+    const preview = buildChargedShotPreview(origin, target, 840);
+    const lastPoint = preview[preview.length - 1];
+    const velocity = toChargedLaunchVelocity(origin, target, 840);
 
-    expect(Math.sign(moving.leftLeg.x)).toBe(-Math.sign(moving.rightLeg.x));
-    expect(Math.abs(moving.rig.x)).toBeGreaterThan(0.015);
-    expect(Math.abs(moving.rig.z)).toBeGreaterThan(0.02);
+    expect(preview.length).toBeGreaterThan(2);
+    expect(preview.length).toBeLessThanOrEqual(8);
+    expect(lastPoint).toBeDefined();
+    expect(lastPoint?.x).toBeGreaterThan(origin.x);
+    expect(lastPoint?.y).toBeLessThan(origin.y);
+    expect(Math.sign((lastPoint?.x ?? origin.x) - origin.x)).toBe(Math.sign(velocity.x));
+    expect(Math.sign((lastPoint?.y ?? origin.y) - origin.y)).toBe(Math.sign(velocity.y));
+  });
+
+  test('adds squash and lift feedback from charge instead of pointer drag', () => {
+    const resting = getLauncherChargePose(0);
+    const charged = getLauncherChargePose(900);
+
+    expect(charged.scaleX).toBeGreaterThan(resting.scaleX);
+    expect(charged.scaleY).toBeLessThan(resting.scaleY);
+    expect(charged.lift).toBeGreaterThan(resting.lift);
   });
 });

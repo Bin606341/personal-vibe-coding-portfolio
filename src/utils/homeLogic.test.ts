@@ -5,6 +5,7 @@ import {
   createShotPath,
   findNearbyEntry,
   getMovementIntent,
+  getMovementSpeed,
   judgeChargedShot,
   movePlayer,
   type SceneEntry,
@@ -64,6 +65,11 @@ describe('home scene movement logic', () => {
 
     expect(next.x).toBeCloseTo(0.707, 2);
     expect(next.z).toBeCloseTo(0.707, 2);
+  });
+
+  it('boosts movement speed when sprint is held', () => {
+    expect(getMovementSpeed(4.4, false)).toBe(4.4);
+    expect(getMovementSpeed(4.4, true)).toBeCloseTo(6.38, 2);
   });
 });
 

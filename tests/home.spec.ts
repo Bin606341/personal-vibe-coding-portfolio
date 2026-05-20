@@ -1,18 +1,26 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 import { PNG } from 'pngjs';
 
-test('home scene renders a nonblank 3D canvas and supports shooting', async ({ page }) => {
+const holdOnBoard = async (board: Locator, at: { x: number; y: number }) => {
+  await board.dispatchEvent('pointerdown', {
+    bubbles: true,
+    pointerId: 1,
+    pointerType: 'mouse',
+    clientX: at.x,
+    clientY: at.y,
+  });
+};
+
+test('home scene renders a visible charge-shot board', async ({ page }) => {
   await page.goto('/');
 
-  await expect(page.getByRole('heading', { name: /HoopVerse/i })).toBeVisible();
-  const canvas = page.locator('canvas');
-  await expect(canvas).toBeVisible();
+  await expect(page.getByRole('heading')).toHaveCount(1);
+  const board = page.getByTestId('home-game-board');
+  await expect(board).toBeVisible();
+  await expect(page.locator('.home-game-svg')).toBeVisible();
+  await expect(page.locator('.charge-meter')).toBeVisible();
 
-  const box = await canvas.boundingBox();
-  expect(box?.width).toBeGreaterThan(300);
-  expect(box?.height).toBeGreaterThan(300);
-
-  const screenshot = await canvas.screenshot();
+  const screenshot = await board.screenshot();
   const png = PNG.sync.read(screenshot);
   let visiblePixels = 0;
 
@@ -31,13 +39,50 @@ test('home scene renders a nonblank 3D canvas and supports shooting', async ({ p
 
   expect(visiblePixels).toBeGreaterThan(500);
 
-  const chargeFill = page.locator('.charge-fill');
-  await page.keyboard.down('KeyD');
+  const box = await board.boundingBox();
+  expect(box).not.toBeNull();
+  if (!box) return;
+
+  const holdPoint = { x: box.x + box.width * 0.14, y: box.y + box.height * 0.76 };
+  await holdOnBoard(board, holdPoint);
   await page.waitForTimeout(250);
-  const chargedWidth = await chargeFill.evaluate((element) => Number.parseFloat(getComputedStyle(element).width));
+
+  const chargedWidth = await page.locator('.charge-fill').evaluate((element) => Number.parseFloat(getComputedStyle(element).width));
   expect(chargedWidth).toBeGreaterThan(0);
-  await page.waitForTimeout(560);
-  await page.keyboard.up('KeyD');
+  await board.dispatchEvent('pointerup', {
+    bubbles: true,
+    pointerId: 1,
+    pointerType: 'mouse',
+    clientX: holdPoint.x,
+    clientY: holdPoint.y,
+  });
+});
+
+test('home game charges while holding and launches on release with a short dashed shot guide', async ({ page }) => {
+  await page.goto('/');
+  const board = page.getByTestId('home-game-board');
+  await expect(board).toBeVisible();
+
+  const box = await board.boundingBox();
+  expect(box).not.toBeNull();
+  if (!box) return;
+
+  const holdPoint = { x: box.x + box.width * 0.14, y: box.y + box.height * 0.76 };
+  await holdOnBoard(board, holdPoint);
+  await page.waitForTimeout(650);
+
+  await expect(page.locator('.charge-meter')).toBeVisible();
+  await expect(page.getByTestId('home-game-status')).toContainText('Charging');
+  await expect(page.locator('.home-game-svg path[stroke-dasharray="10 8"]')).toHaveCount(1);
+
+  await board.dispatchEvent('pointerup', {
+    bubbles: true,
+    pointerId: 1,
+    pointerType: 'mouse',
+    clientX: holdPoint.x,
+    clientY: holdPoint.y,
+  });
+  await expect(page.getByTestId('home-game-status')).toContainText('Shot released');
 });
 
 test('top navigation reaches all content sections', async ({ page }) => {

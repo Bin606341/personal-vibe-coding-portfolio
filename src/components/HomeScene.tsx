@@ -1,1236 +1,803 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, CornerDownLeft } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Home, Menu, RotateCcw, Volume2, VolumeX } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import * as THREE from 'three';
 import {
-  advancePlayer,
+  MAX_CHARGE_MS,
+  buildChargedShotPreview,
   calculateChargePercent,
-  createShotPath,
-  findNearbyEntry,
-  getMovementIntent,
-  judgeChargedShot,
-  movePlayer,
-  type MovementKey,
-  type PlayerPosition,
-  type SceneEntry,
-  type ShotPoint,
-} from '../utils/homeLogic';
+  getLauncherChargePose,
+  toChargedLaunchVelocity,
+} from '../home/input';
+import {
+  ALL_HOME_LEVELS,
+  LEVEL_STAGES,
+  parseLevelDefinition,
+  resolveLevelHoop,
+  type LevelTheme,
+  type ParsedLevel,
+  type Point,
+} from '../home/levels';
+import { createConfetti, stepConfetti, type ConfettiParticle } from '../home/particles';
+import { createBall, stepBall, type BallState } from '../home/physics';
 
-const courtBounds = {
-  minX: -11,
-  maxX: 11,
-  minZ: -6.4,
-  maxZ: 7,
+type AudioCue = 'charge' | 'bounce' | 'score' | 'confetti' | 'reset';
+
+type ThemePalette = {
+  background: string;
+  grid: string;
+  palm: string;
+  wallStripe: string;
+  wallTile: string;
+  wallTileStroke: string;
+  hoop: string;
 };
 
-const sceneEntries: SceneEntry[] = [
-  { id: 'players', label: '现役球员区', path: '/players', position: [-9, -4], radius: 2.25 },
-  { id: 'hall', label: '历史名人堂区', path: '/hall', position: [9, -4], radius: 2.25 },
-  { id: 'training', label: '教学区', path: '/training', position: [-8, 5.5], radius: 2.25 },
-  { id: 'tactics', label: '战术区', path: '/tactics', position: [0, 6.2], radius: 2.25 },
-  { id: 'clutch', label: '历史经典绝杀区', path: '/clutch', position: [8, 5.5], radius: 2.25 },
-];
-
-const entryDescription: Record<string, string> = {
-  players: '发光队徽墙',
-  hall: '海边荣誉纪念墙',
-  training: '训练器材区',
-  tactics: '教练战术板',
-  clutch: '场边大屏回放',
+const AUTO_ADVANCE_MS = 1300;
+const palettes: Record<LevelTheme, ThemePalette> = {
+  ocean: {
+    background: '#4ec2f4',
+    grid: 'rgba(255,255,255,0.42)',
+    palm: '#a6f2ff',
+    wallStripe: '#ff9bd7',
+    wallTile: '#74ef3a',
+    wallTileStroke: '#0c2310',
+    hoop: '#d81b60',
+  },
+  sun: {
+    background: '#ffe128',
+    grid: 'rgba(255,255,255,0.46)',
+    palm: '#91f0ff',
+    wallStripe: '#71c9ff',
+    wallTile: '#ffa400',
+    wallTileStroke: '#4f2b00',
+    hoop: '#f02758',
+  },
 };
 
-export const HOME_PLAYER_DESIGN = {
-  jerseyNumber: '11',
-  uniform: {
-    primary: '#ffffff',
-    accents: ['#0b0f19', '#0077c8'],
-  },
-  skinTone: '#9b5a3d',
-  hair: {
-    color: '#11100f',
-    style: 'short dread clusters',
-  },
-  face: {
-    beard: true,
-    sleepyEyes: true,
-    thickBrows: true,
-  },
-  props: {
-    basketball: true,
-    blackShoes: true,
-    whiteSleeves: true,
-  },
-} as const;
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-export const HOME_PLAYER_ANIMATION = {
-  dribble: {
-    dominantHand: 'right',
-    speed: 10,
-    bodyDrop: 0.075,
-    ballLowY: 0.25,
-    ballHighY: 1.08,
-    shoulderLean: 0.085,
-  },
-  shot: {
-    loadMs: 420,
-    setPointMs: 760,
-    followThroughFrames: 18,
-  },
-} as const;
+const createAudioPlayer = () => {
+  let context: AudioContext | null = null;
 
-type MotionVector = {
-  x: number;
-  y: number;
-  z: number;
-};
+  const getContext = () => {
+    if (typeof window === 'undefined') return null;
+    if (context) return context;
 
-type HomePlayerMotionInput = {
-  elapsed: number;
-  isMoving: boolean;
-  charging: boolean;
-  shooting: boolean;
-  chargeMs: number;
-  shotProgress: number;
-};
+    const AudioContextCtor =
+      window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextCtor) return null;
 
-type HomePlayerMotion = {
-  rig: MotionVector;
-  leftArm: MotionVector;
-  rightArm: MotionVector;
-  leftLeg: MotionVector;
-  rightLeg: MotionVector;
-  ballOffset: MotionVector;
-  ballSpin: {
-    x: number;
-    z: number;
-  };
-};
-
-const clampUnit = (value: number) => Math.min(1, Math.max(0, value));
-const easeOutCubic = (value: number) => 1 - Math.pow(1 - clampUnit(value), 3);
-const easeInOutSine = (value: number) => -(Math.cos(Math.PI * clampUnit(value)) - 1) / 2;
-
-export const getHomePlayerMotion = ({
-  elapsed,
-  isMoving,
-  charging,
-  shooting,
-  chargeMs,
-  shotProgress,
-}: HomePlayerMotionInput): HomePlayerMotion => {
-  const dribble = HOME_PLAYER_ANIMATION.dribble;
-  const bounce = (1 - Math.cos(elapsed * dribble.speed)) / 2;
-  const compression = 1 - bounce;
-  const strideWave = isMoving ? Math.sin(elapsed * 10.5) : 0;
-  const strideCounter = isMoving ? Math.cos(elapsed * 10.5) : 0;
-  const moveLift = isMoving ? Math.abs(strideWave) * 0.024 : 0;
-
-  const motion: HomePlayerMotion = {
-    rig: {
-      x: isMoving ? -strideCounter * 0.035 : -compression * 0.012,
-      y: -dribble.bodyDrop * compression + moveLift,
-      z: -dribble.shoulderLean * compression - strideWave * 0.035,
-    },
-    leftArm: {
-      x: 0.18 + strideWave * 0.12 + compression * 0.08,
-      y: 0,
-      z: 0.42 + compression * 0.1,
-    },
-    rightArm: {
-      x: -0.35 - compression * 0.72 - strideWave * 0.08,
-      y: 0,
-      z: -0.5 - compression * 0.18,
-    },
-    leftLeg: {
-      x: strideWave * 0.56 - compression * 0.08,
-      y: 0,
-      z: -0.045 + strideCounter * 0.025,
-    },
-    rightLeg: {
-      x: -strideWave * 0.56 - compression * 0.08,
-      y: 0,
-      z: 0.045 - strideCounter * 0.025,
-    },
-    ballOffset: {
-      x: 0.4 + Math.sin(elapsed * 2.8) * 0.025,
-      y: dribble.ballLowY + (dribble.ballHighY - dribble.ballLowY) * easeInOutSine(bounce),
-      z: 0.52,
-    },
-    ballSpin: {
-      x: 0.16 + compression * 0.08,
-      z: 0.09 + Math.abs(strideWave) * 0.04,
-    },
+    context = new AudioContextCtor();
+    return context;
   };
 
-  if (charging) {
-    const setPoint = easeOutCubic(chargeMs / HOME_PLAYER_ANIMATION.shot.setPointMs);
-    const load = easeInOutSine(chargeMs / HOME_PLAYER_ANIMATION.shot.loadMs);
-    return {
-      rig: {
-        x: -0.07 + setPoint * 0.02,
-        y: -0.1 + setPoint * 0.035,
-        z: -0.035 + setPoint * 0.02,
-      },
-      leftArm: {
-        x: -0.82 - setPoint * 0.82,
-        y: 0,
-        z: 0.2 - setPoint * 0.07,
-      },
-      rightArm: {
-        x: -0.9 - setPoint * 0.84,
-        y: 0,
-        z: -0.2 + setPoint * 0.07,
-      },
-      leftLeg: {
-        x: -0.16 - load * 0.08,
-        y: 0,
-        z: -0.035,
-      },
-      rightLeg: {
-        x: -0.16 - load * 0.08,
-        y: 0,
-        z: 0.035,
-      },
-      ballOffset: {
-        x: 0.1,
-        y: 0.92 + setPoint * 0.82,
-        z: 0.3 + setPoint * 0.16,
-      },
-      ballSpin: {
-        x: 0.05,
-        z: 0.04,
-      },
-    };
-  }
+  const play = (cue: AudioCue) => {
+    const audio = getContext();
+    if (!audio) return;
 
-  if (shooting) {
-    const follow = easeOutCubic(shotProgress);
-    return {
-      rig: {
-        x: -0.02 + Math.sin(follow * Math.PI) * 0.035,
-        y: Math.sin(follow * Math.PI) * 0.06,
-        z: 0,
-      },
-      leftArm: {
-        x: -1.72 - follow * 0.58,
-        y: 0,
-        z: 0.13 - follow * 0.04,
-      },
-      rightArm: {
-        x: -1.78 - follow * 0.64,
-        y: 0,
-        z: -0.13 + follow * 0.04,
-      },
-      leftLeg: {
-        x: -0.22 + follow * 0.08,
-        y: 0,
-        z: -0.02,
-      },
-      rightLeg: {
-        x: -0.2 + follow * 0.08,
-        y: 0,
-        z: 0.02,
-      },
-      ballOffset: {
-        x: 0.06,
-        y: 1.74 + follow * 0.56,
-        z: 0.38 - follow * 0.22,
-      },
-      ballSpin: {
-        x: 0.22,
-        z: 0.13,
-      },
-    };
-  }
+    const now = audio.currentTime;
+    const oscillator = audio.createOscillator();
+    const gain = audio.createGain();
 
-  return motion;
-};
+    oscillator.connect(gain);
+    gain.connect(audio.destination);
 
-const isMovementKey = (key: string): key is MovementKey =>
-  key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight';
-
-const createSkyTexture = () => {
-  const canvas = document.createElement('canvas');
-  canvas.width = 1600;
-  canvas.height = 900;
-  const ctx = canvas.getContext('2d');
-
-  if (!ctx) return null;
-
-  const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  sky.addColorStop(0, '#30235f');
-  sky.addColorStop(0.24, '#d85b71');
-  sky.addColorStop(0.45, '#ff9f55');
-  sky.addColorStop(0.64, '#2d7fa5');
-  sky.addColorStop(1, '#062638');
-  ctx.fillStyle = sky;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  const sun = ctx.createRadialGradient(530, 330, 10, 530, 330, 190);
-  sun.addColorStop(0, 'rgba(255, 245, 182, 1)');
-  sun.addColorStop(0.38, 'rgba(255, 176, 93, 0.95)');
-  sun.addColorStop(1, 'rgba(255, 176, 93, 0)');
-  ctx.fillStyle = sun;
-  ctx.beginPath();
-  ctx.arc(530, 330, 190, 0, Math.PI * 2);
-  ctx.fill();
-
-  for (let i = 0; i < 11; i += 1) {
-    const x = 120 + i * 150;
-    const y = 130 + Math.sin(i * 1.7) * 55;
-    const cloud = ctx.createRadialGradient(x, y, 20, x, y, 180);
-    cloud.addColorStop(0, 'rgba(255, 218, 201, 0.38)');
-    cloud.addColorStop(1, 'rgba(255, 218, 201, 0)');
-    ctx.fillStyle = cloud;
-    ctx.beginPath();
-    ctx.ellipse(x, y, 220, 55, -0.08, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  const ocean = ctx.createLinearGradient(0, 580, 0, canvas.height);
-  ocean.addColorStop(0, 'rgba(255, 177, 88, 0.26)');
-  ocean.addColorStop(0.08, 'rgba(31, 132, 158, 0.9)');
-  ocean.addColorStop(1, 'rgba(3, 38, 62, 1)');
-  ctx.fillStyle = ocean;
-  ctx.fillRect(0, 555, canvas.width, 345);
-
-  ctx.strokeStyle = 'rgba(255,255,255,0.28)';
-  ctx.lineWidth = 3;
-  for (let y = 600; y < 850; y += 42) {
-    ctx.beginPath();
-    for (let x = 0; x <= canvas.width; x += 26) {
-      const waveY = y + Math.sin(x * 0.018 + y * 0.02) * 8;
-      if (x === 0) ctx.moveTo(x, waveY);
-      else ctx.lineTo(x, waveY);
+    if (cue === 'charge') {
+      oscillator.type = 'triangle';
+      oscillator.frequency.setValueAtTime(300, now);
+      oscillator.frequency.exponentialRampToValueAtTime(520, now + 0.12);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.02, now + 0.025);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+      oscillator.start(now);
+      oscillator.stop(now + 0.18);
+      return;
     }
-    ctx.stroke();
-  }
 
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-};
-
-const addLine = (group: THREE.Group, x: number, z: number, width: number, depth: number) => {
-  const line = new THREE.Mesh(
-    new THREE.BoxGeometry(width, 0.025, depth),
-    new THREE.MeshBasicMaterial({ color: 0xf8fbff, transparent: true, opacity: 0.86 }),
-  );
-  line.position.set(x, 0.111, z);
-  group.add(line);
-};
-
-const createCourtLines = () => {
-  const group = new THREE.Group();
-  addLine(group, 0, -7.35, 24, 0.08);
-  addLine(group, 0, 7.35, 24, 0.08);
-  addLine(group, -11.95, 0, 0.08, 14.7);
-  addLine(group, 11.95, 0, 0.08, 14.7);
-  addLine(group, 0, 0, 0.08, 14.7);
-  addLine(group, 0, -4.85, 7.6, 0.08);
-  addLine(group, 0, 4.85, 7.6, 0.08);
-  addLine(group, -3.8, -6.1, 0.08, 2.5);
-  addLine(group, 3.8, -6.1, 0.08, 2.5);
-  addLine(group, -3.8, 6.1, 0.08, 2.5);
-  addLine(group, 3.8, 6.1, 0.08, 2.5);
-
-  const centerCircle = new THREE.Mesh(
-    new THREE.TorusGeometry(2.2, 0.035, 8, 96),
-    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.82 }),
-  );
-  centerCircle.rotation.x = Math.PI / 2;
-  centerCircle.position.y = 0.13;
-  group.add(centerCircle);
-
-  [-5.65, 5.65].forEach((z) => {
-    const arc = new THREE.Mesh(
-      new THREE.TorusGeometry(3.1, 0.032, 8, 96, Math.PI),
-      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.78 }),
-    );
-    arc.position.set(0, 0.13, z);
-    arc.rotation.x = Math.PI / 2;
-    arc.rotation.z = z < 0 ? 0 : Math.PI;
-    group.add(arc);
-  });
-
-  return group;
-};
-
-const createPalm = (x: number, z: number, scale = 1) => {
-  const palm = new THREE.Group();
-  const trunk = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.08 * scale, 0.15 * scale, 2.6 * scale, 9),
-    new THREE.MeshStandardMaterial({ color: 0x7a4a24, roughness: 0.8 }),
-  );
-  trunk.rotation.z = 0.12;
-  trunk.position.y = 1.25 * scale;
-  palm.add(trunk);
-
-  const leafMaterial = new THREE.MeshStandardMaterial({ color: 0x1e8f65, roughness: 0.7, side: THREE.DoubleSide });
-  for (let i = 0; i < 7; i += 1) {
-    const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.18 * scale, 1.45 * scale, 4), leafMaterial);
-    leaf.position.set(0, 2.58 * scale, 0);
-    leaf.rotation.z = Math.PI / 2;
-    leaf.rotation.y = (i / 7) * Math.PI * 2;
-    leaf.position.x = Math.cos(leaf.rotation.y) * 0.35 * scale;
-    leaf.position.z = Math.sin(leaf.rotation.y) * 0.35 * scale;
-    palm.add(leaf);
-  }
-
-  palm.position.set(x, 0, z);
-  return palm;
-};
-
-const createJerseyTexture = () => {
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 512;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  ctx.strokeStyle = HOME_PLAYER_DESIGN.uniform.accents[0];
-  ctx.lineWidth = 24;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.beginPath();
-  ctx.moveTo(126, 78);
-  ctx.lineTo(256, 174);
-  ctx.lineTo(386, 78);
-  ctx.stroke();
-
-  ctx.strokeStyle = HOME_PLAYER_DESIGN.uniform.accents[1];
-  ctx.lineWidth = 12;
-  ctx.beginPath();
-  ctx.moveTo(146, 82);
-  ctx.lineTo(256, 156);
-  ctx.lineTo(366, 82);
-  ctx.stroke();
-
-  ctx.fillStyle = HOME_PLAYER_DESIGN.uniform.accents[1];
-  ctx.strokeStyle = HOME_PLAYER_DESIGN.uniform.accents[0];
-  ctx.lineWidth = 8;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.font = '900 76px Arial Black, Arial';
-  ctx.strokeText('NETS', 256, 236);
-  ctx.fillText('NETS', 256, 236);
-
-  ctx.font = '900 188px Arial Black, Arial';
-  ctx.lineWidth = 12;
-  ctx.strokeText(HOME_PLAYER_DESIGN.jerseyNumber, 256, 356);
-  ctx.fillText(HOME_PLAYER_DESIGN.jerseyNumber, 256, 356);
-
-  ctx.strokeStyle = 'rgba(11, 15, 25, 0.86)';
-  ctx.lineWidth = 9;
-  ctx.beginPath();
-  ctx.moveTo(100, 456);
-  ctx.lineTo(412, 456);
-  ctx.stroke();
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-};
-
-const createBasketballTexture = () => {
-  const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 256;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-
-  ctx.fillStyle = '#f97316';
-  ctx.fillRect(0, 0, 256, 256);
-  ctx.strokeStyle = '#22110a';
-  ctx.lineWidth = 12;
-  ctx.beginPath();
-  ctx.moveTo(128, 0);
-  ctx.lineTo(128, 256);
-  ctx.moveTo(0, 128);
-  ctx.lineTo(256, 128);
-  ctx.stroke();
-
-  ctx.lineWidth = 8;
-  ctx.beginPath();
-  ctx.ellipse(68, 128, 34, 132, 0, 0, Math.PI * 2);
-  ctx.ellipse(188, 128, 34, 132, 0, 0, Math.PI * 2);
-  ctx.stroke();
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-};
-
-const createPlayer = () => {
-  const player = new THREE.Group();
-  const jerseyTexture = createJerseyTexture();
-  const outline = new THREE.MeshBasicMaterial({ color: 0x050506, side: THREE.BackSide });
-  const jersey = new THREE.MeshStandardMaterial({
-    color: HOME_PLAYER_DESIGN.uniform.primary,
-    roughness: 0.48,
-    metalness: 0.03,
-  });
-  const jerseyDecal = new THREE.MeshBasicMaterial({
-    map: jerseyTexture ?? undefined,
-    transparent: true,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
-  const skin = new THREE.MeshStandardMaterial({ color: HOME_PLAYER_DESIGN.skinTone, roughness: 0.72 });
-  const skinLight = new THREE.MeshStandardMaterial({ color: 0xc47a58, roughness: 0.7 });
-  const hair = new THREE.MeshStandardMaterial({ color: HOME_PLAYER_DESIGN.hair.color, roughness: 0.82 });
-  const hairHighlight = new THREE.MeshStandardMaterial({ color: 0x2a1c17, roughness: 0.86 });
-  const beard = new THREE.MeshStandardMaterial({ color: 0x0b0c0e, roughness: 0.82 });
-  const black = new THREE.MeshStandardMaterial({ color: HOME_PLAYER_DESIGN.uniform.accents[0], roughness: 0.58 });
-  const blue = new THREE.MeshStandardMaterial({ color: HOME_PLAYER_DESIGN.uniform.accents[1], roughness: 0.48 });
-  const white = new THREE.MeshStandardMaterial({ color: 0xf8fbff, roughness: 0.44 });
-  const eyeWhite = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.36 });
-
-  const torsoGeometry = new THREE.CapsuleGeometry(0.36, 0.68, 7, 24);
-  const torsoOutline = new THREE.Mesh(torsoGeometry, outline);
-  torsoOutline.position.y = 1.08;
-  torsoOutline.scale.set(1.23, 1.02, 0.84);
-  const torso = new THREE.Mesh(torsoGeometry, jersey);
-  torso.position.y = 1.08;
-  torso.scale.set(1.12, 0.96, 0.76);
-
-  const chest = new THREE.Mesh(new THREE.PlaneGeometry(0.74, 0.82), jerseyDecal);
-  chest.position.set(0, 1.1, 0.305);
-  const leftJerseyStripe = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.76, 0.035), blue);
-  leftJerseyStripe.position.set(-0.34, 1.03, 0.29);
-  const rightJerseyStripe = leftJerseyStripe.clone();
-  rightJerseyStripe.position.x = 0.34;
-  const collarLeft = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.035, 0.045), black);
-  collarLeft.position.set(-0.08, 1.43, 0.31);
-  collarLeft.rotation.z = -0.54;
-  const collarRight = collarLeft.clone();
-  collarRight.position.x = 0.08;
-  collarRight.rotation.z = 0.54;
-
-  const shortsOutline = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.35, 0.56), outline);
-  shortsOutline.position.y = 0.7;
-  shortsOutline.scale.set(1.06, 1.06, 1.06);
-  const shorts = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.3, 0.5), jersey);
-  shorts.position.y = 0.7;
-  const leftShortStripe = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.3, 0.53), blue);
-  leftShortStripe.position.set(-0.39, 0.7, 0);
-  const rightShortStripe = leftShortStripe.clone();
-  rightShortStripe.position.x = 0.39;
-  const shortHem = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.035, 0.53), black);
-  shortHem.position.set(0, 0.55, 0);
-
-  const headGeometry = new THREE.SphereGeometry(0.42, 36, 26);
-  const headOutline = new THREE.Mesh(headGeometry, outline);
-  headOutline.position.y = 1.74;
-  headOutline.scale.set(1.12, 1.18, 1.02);
-  const head = new THREE.Mesh(headGeometry, skin);
-  head.position.y = 1.74;
-  head.scale.set(1.02, 1.08, 0.94);
-
-  const leftEar = new THREE.Mesh(new THREE.SphereGeometry(0.085, 18, 12), skin);
-  leftEar.position.set(-0.43, 1.72, 0.03);
-  leftEar.scale.set(0.72, 1.1, 0.42);
-  const rightEar = leftEar.clone();
-  rightEar.position.x = 0.43;
-  const leftInnerEar = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 10), skinLight);
-  leftInnerEar.position.set(-0.446, 1.715, 0.065);
-  leftInnerEar.scale.set(0.5, 0.9, 0.22);
-  const rightInnerEar = leftInnerEar.clone();
-  rightInnerEar.position.x = 0.446;
-
-  const hairCap = new THREE.Mesh(new THREE.SphereGeometry(0.43, 32, 18, 0, Math.PI * 2, 0, Math.PI * 0.56), hair);
-  hairCap.position.y = 1.91;
-  hairCap.scale.set(1.08, 0.84, 0.98);
-  const hairLocks = new THREE.Group();
-  const lockGeometry = new THREE.CapsuleGeometry(0.044, 0.18, 5, 12);
-  const lockLayout = [
-    [-0.3, 2.03, 0.08, 0.75, -0.85, 1.14],
-    [-0.18, 2.08, 0.17, 1.05, -0.38, 1.05],
-    [-0.04, 2.1, 0.2, 1.18, -0.05, 1.18],
-    [0.12, 2.08, 0.16, 1.0, 0.36, 1.05],
-    [0.28, 2.02, 0.08, 0.72, 0.78, 1.1],
-    [-0.35, 1.9, 0.18, 1.28, -0.72, 0.98],
-    [-0.16, 1.94, 0.32, 1.34, -0.24, 0.92],
-    [0.03, 1.96, 0.34, 1.4, 0.08, 0.94],
-    [0.22, 1.94, 0.28, 1.22, 0.44, 0.98],
-    [0.36, 1.88, 0.1, 1.05, 0.74, 0.94],
-  ];
-  lockLayout.forEach(([x, y, z, rx, rz, scale], index) => {
-    const lock = new THREE.Mesh(lockGeometry, index % 2 === 0 ? hairHighlight : hair);
-    lock.position.set(x, y, z);
-    lock.rotation.x = rx;
-    lock.rotation.z = rz;
-    lock.scale.setScalar(scale);
-    hairLocks.add(lock);
-  });
-
-  const makeEye = (side: number) => {
-    const group = new THREE.Group();
-    group.position.set(side * 0.135, 1.78, 0.365);
-
-    const outlineEye = new THREE.Mesh(new THREE.SphereGeometry(0.082, 20, 12), black);
-    outlineEye.scale.set(1.28, 0.62, 0.12);
-    const whiteEye = new THREE.Mesh(new THREE.SphereGeometry(0.07, 20, 12), eyeWhite);
-    whiteEye.position.z = 0.012;
-    whiteEye.scale.set(1.24, 0.52, 0.1);
-    const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.035, 16, 10), black);
-    pupil.position.set(0.018 * side, -0.01, 0.031);
-    pupil.scale.set(0.95, 1.05, 0.16);
-    const lid = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.026, 0.028), skin);
-    lid.position.set(0, 0.038, 0.04);
-    lid.rotation.z = -0.05 * side;
-
-    group.add(outlineEye, whiteEye, pupil, lid);
-    return group;
-  };
-
-  const leftEye = makeEye(-1);
-  const rightEye = makeEye(1);
-  const leftBrow = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.042, 0.038), black);
-  leftBrow.position.set(-0.14, 1.89, 0.37);
-  leftBrow.rotation.z = -0.08;
-  const rightBrow = leftBrow.clone();
-  rightBrow.position.x = 0.14;
-  rightBrow.rotation.z = 0.08;
-
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.046, 16, 10), skinLight);
-  nose.position.set(0, 1.69, 0.405);
-  nose.scale.set(0.82, 0.65, 0.42);
-
-  const beardPatch = new THREE.Mesh(new THREE.SphereGeometry(0.285, 28, 16), beard);
-  beardPatch.position.set(0, 1.52, 0.32);
-  beardPatch.scale.set(1.08, 0.62, 0.28);
-  const leftCheekBeard = new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 0.22, 5, 12), beard);
-  leftCheekBeard.position.set(-0.27, 1.58, 0.315);
-  leftCheekBeard.rotation.z = 0.48;
-  const rightCheekBeard = leftCheekBeard.clone();
-  rightCheekBeard.position.x = 0.27;
-  rightCheekBeard.rotation.z = -0.48;
-  const moustacheLeft = new THREE.Mesh(new THREE.CapsuleGeometry(0.023, 0.11, 4, 10), beard);
-  moustacheLeft.position.set(-0.055, 1.6, 0.43);
-  moustacheLeft.rotation.z = Math.PI / 2 - 0.18;
-  const moustacheRight = moustacheLeft.clone();
-  moustacheRight.position.x = 0.055;
-  moustacheRight.rotation.z = Math.PI / 2 + 0.18;
-  const lip = new THREE.Mesh(new THREE.CapsuleGeometry(0.018, 0.12, 4, 10), skinLight);
-  lip.position.set(0, 1.545, 0.45);
-  lip.rotation.z = Math.PI / 2;
-  const chin = new THREE.Mesh(new THREE.SphereGeometry(0.06, 16, 10), skinLight);
-  chin.position.set(0, 1.46, 0.435);
-  chin.scale.set(1.15, 0.52, 0.28);
-
-  const createArm = (side: -1 | 1, sleeved: boolean) => {
-    const arm = new THREE.Group();
-    arm.position.set(side * 0.48, 1.22, 0.05);
-    arm.rotation.z = side === -1 ? 0.32 : -0.32;
-
-    const upper = new THREE.Mesh(new THREE.CapsuleGeometry(0.072, 0.27, 5, 12), skin);
-    upper.position.y = -0.14;
-    const forearm = new THREE.Mesh(new THREE.CapsuleGeometry(0.067, 0.32, 5, 12), sleeved ? white : skin);
-    forearm.position.set(side * 0.025, -0.43, 0.015);
-    forearm.rotation.z = side * 0.06;
-    const wrist = new THREE.Mesh(new THREE.TorusGeometry(0.069, 0.012, 8, 18), sleeved ? black : white);
-    wrist.position.set(side * 0.038, -0.62, 0.015);
-    wrist.rotation.x = Math.PI / 2;
-    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.075, 18, 12), skin);
-    hand.position.set(side * 0.045, -0.69, 0.02);
-    hand.scale.set(1.0, 0.82, 0.92);
-
-    arm.add(upper, forearm, wrist, hand);
-    return arm;
-  };
-
-  const leftArm = createArm(-1, false);
-  const rightArm = createArm(1, true);
-
-  const createLeg = (side: -1 | 1) => {
-    const leg = new THREE.Group();
-    leg.position.set(side * 0.2, 0.67, 0);
-
-    const thigh = new THREE.Mesh(new THREE.CapsuleGeometry(0.084, 0.26, 5, 12), white);
-    thigh.position.y = -0.12;
-    thigh.rotation.z = side * 0.05;
-    const calf = new THREE.Mesh(new THREE.CapsuleGeometry(0.074, 0.34, 5, 12), white);
-    calf.position.set(side * 0.015, -0.38, 0.015);
-    const kneeBand = new THREE.Mesh(new THREE.TorusGeometry(0.078, 0.011, 8, 18), black);
-    kneeBand.position.set(side * 0.008, -0.25, 0.014);
-    kneeBand.rotation.x = Math.PI / 2;
-
-    const shoe = new THREE.Group();
-    shoe.position.set(side * 0.035, -0.59, 0.09);
-    const shoeBody = new THREE.Mesh(new THREE.BoxGeometry(0.33, 0.15, 0.48), black);
-    shoeBody.rotation.x = -0.08;
-    const sole = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.035, 0.52), new THREE.MeshStandardMaterial({ color: 0x20242d, roughness: 0.64 }));
-    sole.position.y = -0.08;
-    const laceOne = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.018, 0.018), new THREE.MeshBasicMaterial({ color: 0x59606b }));
-    laceOne.position.set(0, 0.04, 0.05);
-    laceOne.rotation.y = side * 0.32;
-    const laceTwo = laceOne.clone();
-    laceTwo.position.z = -0.035;
-    laceTwo.rotation.y = -side * 0.32;
-    shoe.add(shoeBody, sole, laceOne, laceTwo);
-
-    leg.add(thigh, calf, kneeBand, shoe);
-    return leg;
-  };
-
-  const leftLeg = createLeg(-1);
-  const rightLeg = createLeg(1);
-
-  player.add(
-    torsoOutline,
-    torso,
-    chest,
-    leftJerseyStripe,
-    rightJerseyStripe,
-    collarLeft,
-    collarRight,
-    shortsOutline,
-    shorts,
-    leftShortStripe,
-    rightShortStripe,
-    shortHem,
-    headOutline,
-    head,
-    leftEar,
-    rightEar,
-    leftInnerEar,
-    rightInnerEar,
-    hairCap,
-    hairLocks,
-    leftEye,
-    rightEye,
-    leftBrow,
-    rightBrow,
-    nose,
-    beardPatch,
-    leftCheekBeard,
-    rightCheekBeard,
-    moustacheLeft,
-    moustacheRight,
-    lip,
-    chin,
-    leftArm,
-    rightArm,
-    leftLeg,
-    rightLeg,
-  );
-  player.traverse((object) => {
-    if (object instanceof THREE.Mesh) {
-      object.castShadow = true;
+    if (cue === 'bounce') {
+      oscillator.type = 'square';
+      oscillator.frequency.setValueAtTime(300, now);
+      oscillator.frequency.exponentialRampToValueAtTime(180, now + 0.08);
+      gain.gain.setValueAtTime(0.025, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.1);
+      oscillator.start(now);
+      oscillator.stop(now + 0.12);
+      return;
     }
-  });
-  player.scale.setScalar(1.12);
-  player.userData = { leftArm, rightArm, leftLeg, rightLeg };
-  return player;
+
+    if (cue === 'score') {
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(760, now);
+      oscillator.frequency.exponentialRampToValueAtTime(1020, now + 0.14);
+      gain.gain.setValueAtTime(0.035, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.2);
+      oscillator.start(now);
+      oscillator.stop(now + 0.22);
+      return;
+    }
+
+    if (cue === 'confetti') {
+      oscillator.type = 'triangle';
+      oscillator.frequency.setValueAtTime(520, now);
+      oscillator.frequency.linearRampToValueAtTime(900, now + 0.08);
+      oscillator.frequency.linearRampToValueAtTime(680, now + 0.18);
+      gain.gain.setValueAtTime(0.026, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+      oscillator.start(now);
+      oscillator.stop(now + 0.24);
+      return;
+    }
+
+    oscillator.type = 'triangle';
+    oscillator.frequency.setValueAtTime(230, now);
+    oscillator.frequency.exponentialRampToValueAtTime(150, now + 0.1);
+    gain.gain.setValueAtTime(0.018, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+    oscillator.start(now);
+    oscillator.stop(now + 0.14);
+  };
+
+  const dispose = () => {
+    void context?.close();
+    context = null;
+  };
+
+  return { play, dispose };
 };
 
-const createBasketball = () => {
-  const texture = createBasketballTexture();
-  return new THREE.Mesh(
-    new THREE.SphereGeometry(0.25, 36, 28),
-    new THREE.MeshStandardMaterial({ color: 0xf97316, map: texture ?? undefined, roughness: 0.5 }),
-  );
+const readPointer = (event: React.PointerEvent<HTMLElement>, level: ParsedLevel): Point => {
+  const rect = event.currentTarget.getBoundingClientRect();
+  const scaleX = rect.width / level.width;
+  const scaleY = rect.height / level.height;
+
+  return {
+    x: clamp((event.clientX - rect.left) / scaleX, 0, level.width),
+    y: clamp((event.clientY - rect.top) / scaleY, 0, level.height),
+  };
 };
 
-const createEntryObject = (entry: SceneEntry, index: number) => {
-  const group = new THREE.Group();
-  const [x, z] = entry.position;
-  const colors = [0xffb02e, 0x79d8ff, 0xe85dff, 0x68ffab, 0xff5d8f];
-  const color = colors[index];
-  const boardMaterial = new THREE.MeshStandardMaterial({
-    color,
-    emissive: color,
-    emissiveIntensity: 0.42,
-    roughness: 0.28,
-    metalness: 0.18,
-  });
-
-  const board = new THREE.Mesh(new THREE.BoxGeometry(2.35, 1.2, 0.18), boardMaterial);
-  const glow = new THREE.Mesh(
-    new THREE.TorusGeometry(1.45, 0.045, 16, 72),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.75 }),
-  );
-  const pedestal = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.8, 1.05, 0.2, 32),
-    new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.5, metalness: 0.25 }),
-  );
-
-  board.position.y = 0.92;
-  glow.position.y = 0.95;
-  glow.rotation.x = Math.PI / 2;
-  pedestal.position.y = 0.1;
-  group.position.set(x, 0, z);
-  group.add(pedestal, board, glow);
-  group.userData = { baseY: 0, color };
-  return group;
+const createLaunchOrigin = (shooterPosition: Point, heldMs: number): Point => {
+  const pose = getLauncherChargePose(heldMs);
+  return {
+    x: shooterPosition.x + 8,
+    y: shooterPosition.y - 46 - pose.lift * 0.45,
+  };
 };
+
+const createPalmSilhouettes = (level: ParsedLevel, palette: ThemePalette) => (
+  <g opacity="0.2">
+    {[300, 520, 710].map((x, index) => (
+      <g key={x} transform={`translate(${x} ${level.height - 36 + (index % 2) * 10})`}>
+        <rect x="-5" y="-110" width="10" height="116" rx="5" fill={palette.palm} />
+        <path d="M -34 -106 Q 0 -150 34 -106" fill="none" stroke={palette.palm} strokeWidth="10" strokeLinecap="round" />
+        <path d="M -30 -78 Q 0 -120 30 -78" fill="none" stroke={palette.palm} strokeWidth="10" strokeLinecap="round" />
+      </g>
+    ))}
+  </g>
+);
+
+const getStageProgress = (cursor: number) => {
+  let remaining = cursor;
+
+  for (let stageIndex = 0; stageIndex < LEVEL_STAGES.length; stageIndex += 1) {
+    const stage = LEVEL_STAGES[stageIndex];
+    if (remaining < stage.levels.length) {
+      return {
+        stage,
+        stageIndex,
+        levelIndex: remaining,
+      };
+    }
+
+    remaining -= stage.levels.length;
+  }
+
+  return {
+    stage: LEVEL_STAGES[0],
+    stageIndex: 0,
+    levelIndex: 0,
+  };
+};
+
+const renderBasketball = (ball: Pick<BallState, 'radius'>, fill = '#5ca4ff') => (
+  <>
+    <circle r={ball.radius} fill={fill} stroke="#05070b" strokeWidth="4" />
+    <path d={`M 0 ${-ball.radius} L 0 ${ball.radius}`} stroke="#05070b" strokeWidth="3" />
+    <path d={`M ${-ball.radius} 0 L ${ball.radius} 0`} stroke="#05070b" strokeWidth="3" />
+    <path
+      d={`M ${-ball.radius * 0.62} ${-ball.radius} Q ${-ball.radius * 1.06} 0 ${-ball.radius * 0.62} ${ball.radius}`}
+      stroke="#05070b"
+      strokeWidth="3"
+      fill="none"
+    />
+    <path
+      d={`M ${ball.radius * 0.62} ${-ball.radius} Q ${ball.radius * 1.06} 0 ${ball.radius * 0.62} ${ball.radius}`}
+      stroke="#05070b"
+      strokeWidth="3"
+      fill="none"
+    />
+  </>
+);
 
 export const HomeScene = () => {
   const navigate = useNavigate();
-  const mountRef = useRef<HTMLDivElement | null>(null);
-  const playerGroupRef = useRef<THREE.Group | null>(null);
-  const ballRef = useRef<THREE.Mesh | null>(null);
-  const pressedKeysRef = useRef<Set<MovementKey>>(new Set());
-  const shotRef = useRef<{ path: ShotPoint[]; frame: number; made: boolean } | null>(null);
-  const chargeStartRef = useRef<number | null>(null);
-  const positionRef = useRef<PlayerPosition>({ x: 0, z: 1.8 });
-  const activeEntryRef = useRef<SceneEntry | null>(null);
-  const [playerPosition, setPlayerPosition] = useState<PlayerPosition>({ x: 0, z: 1.8 });
-  const [activeEntry, setActiveEntry] = useState<SceneEntry | null>(null);
-  const [shotFeedback, setShotFeedback] = useState('按住 D 键蓄力，松开出手');
-  const [chargePercent, setChargePercent] = useState(0);
+  const audioRef = useRef(createAudioPlayer());
+  const aimPointRef = useRef<Point>({ x: 0, y: 0 });
+  const animationFrameRef = useRef<number | null>(null);
+  const ballRef = useRef<BallState | null>(null);
+  const chargeStartedAtRef = useRef<number | null>(null);
+  const chargingRef = useRef(false);
+  const completeTextRef = useRef('');
+  const completeTimeoutRef = useRef<number | null>(null);
+  const lastBounceAtRef = useRef(0);
+  const lastFrameRef = useRef<number | null>(null);
+  const particlesRef = useRef<ConfettiParticle[]>([]);
+  const sfxEnabledRef = useRef(true);
+
+  const [announceScore, setAnnounceScore] = useState(false);
+  const [attempts, setAttempts] = useState(0);
+  const [ball, setBall] = useState<BallState | null>(null);
+  const [chargeMs, setChargeMs] = useState(0);
+  const [completeText, setCompleteText] = useState('');
   const [isCharging, setIsCharging] = useState(false);
-  const [webglFallback, setWebglFallback] = useState(false);
+  const [levelAnimationMs, setLevelAnimationMs] = useState(0);
+  const [levelCursor, setLevelCursor] = useState(0);
+  const [musicEnabled, setMusicEnabled] = useState(true);
+  const [particles, setParticles] = useState<ConfettiParticle[]>([]);
+  const [sfxEnabled, setSfxEnabled] = useState(true);
+  const [showHelp, setShowHelp] = useState(true);
+  const [statusText, setStatusText] = useState('Click anywhere to charge. Move the mouse to aim, then release.');
 
-  const entryLabels = useMemo(
+  const { stage, levelIndex } = useMemo(() => getStageProgress(levelCursor), [levelCursor]);
+  const level = useMemo(() => parseLevelDefinition(stage.levels[levelIndex]), [levelIndex, stage.levels]);
+  const renderedHoop = useMemo(() => resolveLevelHoop(level, levelAnimationMs), [level, levelAnimationMs]);
+  const activeLevel = useMemo(() => ({ ...level, hoop: renderedHoop }), [level, renderedHoop]);
+  const [aimPoint, setAimPoint] = useState<Point>({ x: activeLevel.hoop.center.x, y: activeLevel.hoop.center.y });
+  const palette = palettes[level.theme];
+  const chargePercent = calculateChargePercent(chargeMs);
+  const chargePose = getLauncherChargePose(isCharging ? chargeMs : 0);
+  const audioEnabled = sfxEnabled || musicEnabled;
+  const shooterPosition = useMemo(
+    () => ({
+      x: level.launcher.x,
+      y: level.launcher.y - 22,
+    }),
+    [level.launcher.x, level.launcher.y],
+  );
+  const launchOrigin = useMemo(
+    () => createLaunchOrigin(shooterPosition, isCharging ? chargeMs : 0),
+    [chargeMs, isCharging, shooterPosition],
+  );
+  const shotPreview = useMemo(
     () =>
-      sceneEntries.map((entry, index) => ({
-        ...entry,
-        style: {
-          left: `${10 + index * 19.5}%`,
-        },
-      })),
-    [],
+      !ball && !completeText
+        ? buildChargedShotPreview(launchOrigin, aimPoint, chargeMs)
+        : [],
+    [aimPoint, ball, chargeMs, completeText, launchOrigin],
   );
-
-  const updateActiveEntry = useCallback((position: PlayerPosition) => {
-    const next = findNearbyEntry(position, sceneEntries);
-    if (next?.id !== activeEntryRef.current?.id) {
-      activeEntryRef.current = next;
-      setActiveEntry(next);
-    }
-  }, []);
-
-  const move = useCallback(
-    (key: MovementKey) => {
-      setPlayerPosition((current) => {
-        const next = movePlayer(current, key, 0.72, courtBounds);
-        positionRef.current = next;
-        updateActiveEntry(next);
-        return next;
-      });
-    },
-    [updateActiveEntry],
+  const rimCenterX = useMemo(
+    () => (activeLevel.hoop.leftRim.x + activeLevel.hoop.rightRim.x + activeLevel.hoop.rightRim.width) / 2,
+    [activeLevel.hoop.leftRim.x, activeLevel.hoop.rightRim.width, activeLevel.hoop.rightRim.x],
   );
-
-  const releaseShot = useCallback((heldMs: number) => {
-    const result = judgeChargedShot(heldMs);
-    const start = {
-      x: positionRef.current.x,
-      y: 1.42,
-      z: positionRef.current.z - 0.35,
-    };
-    const rim = {
-      x: result.quality === 'too-long' ? 0.82 : result.made ? 0 : -0.48,
-      y: result.quality === 'too-long' ? 3.22 : result.made ? 2.83 : 2.48,
-      z: result.quality === 'too-long' ? -5.62 : result.made ? -5.82 : -6.08,
-    };
-
-    shotRef.current = { path: createShotPath(start, rim, 48, result.made ? 4.45 : 3.6), frame: 0, made: result.made };
-    setShotFeedback(result.feedback);
-  }, []);
-
-  const startCharge = useCallback(() => {
-    if (chargeStartRef.current !== null || shotRef.current) return;
-    chargeStartRef.current = performance.now();
-    setChargePercent(0);
-    setIsCharging(true);
-    setShotFeedback('蓄力中，绿色区域松开就是完美投篮');
-  }, []);
-
-  const finishCharge = useCallback(() => {
-    if (chargeStartRef.current === null) return;
-    const heldMs = performance.now() - chargeStartRef.current;
-    chargeStartRef.current = null;
-    setChargePercent(calculateChargePercent(heldMs));
-    setIsCharging(false);
-    releaseShot(heldMs);
-  }, [releaseShot]);
+  const rimTopY = activeLevel.hoop.leftRim.y;
+  const progressDots = Array.from({ length: stage.levels.length }, (_, index) => ({
+    id: `${stage.id}-dot-${index + 1}`,
+    active: index <= levelIndex,
+  }));
+  const currentBall = ball ?? ballRef.current;
+  const stickerText = isCharging ? 'HOLD' : 'SHOOT!';
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (isMovementKey(event.key)) {
-        event.preventDefault();
-        pressedKeysRef.current.add(event.key);
-      }
-
-      if (event.key.toLowerCase() === 'd' && !event.repeat) {
-        event.preventDefault();
-        startCharge();
-      }
-
-      if (event.key === 'Enter' && activeEntryRef.current) {
-        event.preventDefault();
-        navigate(activeEntryRef.current.path);
-      }
-    };
-
-    const onKeyUp = (event: KeyboardEvent) => {
-      if (isMovementKey(event.key)) {
-        pressedKeysRef.current.delete(event.key);
-      }
-
-      if (event.key.toLowerCase() === 'd') {
-        event.preventDefault();
-        finishCharge();
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('keyup', onKeyUp);
-    };
-  }, [finishCharge, navigate, startCharge]);
-
-  useEffect(() => {
-    const mount = mountRef.current;
-    if (!mount) return undefined;
-
-    let renderer: THREE.WebGLRenderer;
-    let animationId = 0;
-
-    if (import.meta.env.MODE === 'test') {
-      setWebglFallback(true);
-      return undefined;
-    }
-
-    try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
-    } catch {
-      setWebglFallback(true);
-      return undefined;
-    }
-
-    const scene = new THREE.Scene();
-    scene.fog = new THREE.Fog(0x111a34, 24, 70);
-
-    const camera = new THREE.PerspectiveCamera(46, mount.clientWidth / mount.clientHeight, 0.1, 120);
-    camera.position.set(0, 6.9, 11.5);
-    camera.lookAt(0, 1.05, -1.6);
-
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.8));
-    renderer.setSize(mount.clientWidth, mount.clientHeight);
-    renderer.setClearColor(0x1f2c55, 1);
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    mount.appendChild(renderer.domElement);
-
-    const skyTexture = createSkyTexture();
-    if (skyTexture) {
-      const skyPlane = new THREE.Mesh(
-        new THREE.PlaneGeometry(95, 54),
-        new THREE.MeshBasicMaterial({ map: skyTexture, depthWrite: false }),
-      );
-      skyPlane.position.set(0, 15, -39);
-      scene.add(skyPlane);
-    }
-
-    const hemi = new THREE.HemisphereLight(0xffd3ad, 0x0f4766, 2.4);
-    const sun = new THREE.DirectionalLight(0xffa35b, 3.3);
-    sun.position.set(-8, 12, 10);
-    sun.castShadow = true;
-    scene.add(hemi, sun);
-
-    const sunDisc = new THREE.Mesh(
-      new THREE.SphereGeometry(1.05, 32, 20),
-      new THREE.MeshBasicMaterial({ color: 0xffdf91, transparent: true, opacity: 0.92 }),
-    );
-    sunDisc.position.set(-8.4, 8.8, -30);
-    scene.add(sunDisc);
-
-    const oceanGeometry = new THREE.PlaneGeometry(96, 50, 80, 40);
-    const ocean = new THREE.Mesh(
-      oceanGeometry,
-      new THREE.MeshStandardMaterial({
-        color: 0x0d7897,
-        roughness: 0.28,
-        metalness: 0.08,
-        emissive: 0x082f49,
-        emissiveIntensity: 0.12,
-      }),
-    );
-    ocean.rotation.x = -Math.PI / 2;
-    ocean.position.set(0, -0.16, -21);
-    scene.add(ocean);
-
-    const beach = new THREE.Mesh(
-      new THREE.PlaneGeometry(42, 10),
-      new THREE.MeshStandardMaterial({ color: 0xc98b55, roughness: 0.76 }),
-    );
-    beach.rotation.x = -Math.PI / 2;
-    beach.position.set(0, -0.12, 11.2);
-    scene.add(beach);
-
-    scene.add(createPalm(-14, 8.5, 1.1), createPalm(14.5, 8.1, 1), createPalm(-17, -1, 0.9));
-
-    const court = new THREE.Mesh(
-      new THREE.BoxGeometry(24.4, 0.16, 15.2),
-      new THREE.MeshStandardMaterial({ color: 0xb85f2a, roughness: 0.48, metalness: 0.08 }),
-    );
-    court.position.y = 0;
-    court.receiveShadow = true;
-    scene.add(court, createCourtLines());
-
-    const sidelineGlow = new THREE.Mesh(
-      new THREE.BoxGeometry(24.8, 0.03, 15.6),
-      new THREE.MeshBasicMaterial({ color: 0xffb02e, transparent: true, opacity: 0.12 }),
-    );
-    sidelineGlow.position.y = 0.14;
-    scene.add(sidelineGlow);
-
-    const hoopGroup = new THREE.Group();
-    const pole = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.08, 0.11, 3.25, 18),
-      new THREE.MeshStandardMaterial({ color: 0x273044, metalness: 0.42, roughness: 0.24 }),
-    );
-    pole.position.set(0, 1.55, -7.35);
-    pole.castShadow = true;
-    const backboard = new THREE.Mesh(
-      new THREE.BoxGeometry(2.35, 1.28, 0.08),
-      new THREE.MeshStandardMaterial({ color: 0xd8f2ff, transparent: true, opacity: 0.74 }),
-    );
-    backboard.position.set(0, 3.08, -6.55);
-    const rim = new THREE.Mesh(
-      new THREE.TorusGeometry(0.44, 0.035, 16, 72),
-      new THREE.MeshStandardMaterial({ color: 0xff6a00, emissive: 0xff3d00, emissiveIntensity: 0.3 }),
-    );
-    rim.rotation.x = Math.PI / 2;
-    rim.position.set(0, 2.78, -5.85);
-    const net = new THREE.Mesh(
-      new THREE.ConeGeometry(0.43, 0.62, 18, 1, true),
-      new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.45 }),
-    );
-    net.position.set(0, 2.44, -5.85);
-    hoopGroup.add(pole, backboard, rim, net);
-    scene.add(hoopGroup);
-
-    const player = createPlayer();
-    player.position.set(positionRef.current.x, 0, positionRef.current.z);
-    scene.add(player);
-    playerGroupRef.current = player;
-
-    const ball = createBasketball();
-    ball.castShadow = true;
-    scene.add(ball);
     ballRef.current = ball;
-
-    const entryObjects = sceneEntries.map((entry, index) => {
-      const object = createEntryObject(entry, index);
-      scene.add(object);
-      return object;
-    });
-
-    const clock = new THREE.Clock();
-    let stateTick = 0;
-
-    const onResize = () => {
-      if (!mount.clientWidth || !mount.clientHeight) return;
-      camera.aspect = mount.clientWidth / mount.clientHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(mount.clientWidth, mount.clientHeight);
-    };
-
-    window.addEventListener('resize', onResize);
-
-    const animate = () => {
-      animationId = window.requestAnimationFrame(animate);
-      const delta = Math.min(clock.getDelta(), 0.05);
-      const elapsed = clock.elapsedTime;
-      const nextPosition = advancePlayer(positionRef.current, pressedKeysRef.current, 4.4, delta, courtBounds);
-      positionRef.current = nextPosition;
-      updateActiveEntry(nextPosition);
-
-      stateTick += delta;
-      if (stateTick > 0.08) {
-        stateTick = 0;
-        setPlayerPosition(nextPosition);
-        if (chargeStartRef.current !== null) {
-          setChargePercent(calculateChargePercent(performance.now() - chargeStartRef.current));
-        }
-      }
-
-      const intent = getMovementIntent(pressedKeysRef.current);
-      const isMoving = Math.hypot(intent.x, intent.z) > 0.01;
-      const shot = shotRef.current;
-      const shooting = Boolean(shot);
-      const charging = chargeStartRef.current !== null;
-      const chargeMs = chargeStartRef.current === null ? 0 : performance.now() - chargeStartRef.current;
-      const shotProgress = shot ? Math.min(1, shot.frame / Math.max(1, HOME_PLAYER_ANIMATION.shot.followThroughFrames)) : 0;
-      const motion = getHomePlayerMotion({ elapsed, isMoving, charging, shooting, chargeMs, shotProgress });
-
-      player.position.lerp(new THREE.Vector3(nextPosition.x, motion.rig.y, nextPosition.z), 0.34);
-      if (isMoving) {
-        const targetAngle = Math.atan2(intent.x, intent.z);
-        player.rotation.y = THREE.MathUtils.lerp(player.rotation.y, targetAngle, 0.18);
-      }
-      player.rotation.x = THREE.MathUtils.lerp(player.rotation.x, motion.rig.x, 0.2);
-      player.rotation.z = THREE.MathUtils.lerp(player.rotation.z, motion.rig.z, 0.2);
-
-      const leftLeg = player.userData.leftLeg as THREE.Object3D;
-      const rightLeg = player.userData.rightLeg as THREE.Object3D;
-      const leftArm = player.userData.leftArm as THREE.Object3D;
-      const rightArm = player.userData.rightArm as THREE.Object3D;
-      leftLeg.rotation.x = THREE.MathUtils.lerp(leftLeg.rotation.x, motion.leftLeg.x, 0.26);
-      leftLeg.rotation.z = THREE.MathUtils.lerp(leftLeg.rotation.z, motion.leftLeg.z, 0.22);
-      rightLeg.rotation.x = THREE.MathUtils.lerp(rightLeg.rotation.x, motion.rightLeg.x, 0.26);
-      rightLeg.rotation.z = THREE.MathUtils.lerp(rightLeg.rotation.z, motion.rightLeg.z, 0.22);
-      leftArm.rotation.x = THREE.MathUtils.lerp(leftArm.rotation.x, motion.leftArm.x, 0.28);
-      leftArm.rotation.z = THREE.MathUtils.lerp(leftArm.rotation.z, motion.leftArm.z, 0.24);
-      rightArm.rotation.x = THREE.MathUtils.lerp(rightArm.rotation.x, motion.rightArm.x, 0.28);
-      rightArm.rotation.z = THREE.MathUtils.lerp(rightArm.rotation.z, motion.rightArm.z, 0.24);
-
-      if (shotRef.current && ballRef.current) {
-        const currentShot = shotRef.current;
-        const point = currentShot.path[Math.min(currentShot.frame, currentShot.path.length - 1)];
-        ballRef.current.position.set(point.x, point.y, point.z);
-        ballRef.current.rotation.x += motion.ballSpin.x;
-        ballRef.current.rotation.z += motion.ballSpin.z;
-        currentShot.frame += 1;
-
-        if (currentShot.frame >= currentShot.path.length + HOME_PLAYER_ANIMATION.shot.followThroughFrames) {
-          shotRef.current = null;
-        }
-      } else if (ballRef.current) {
-        const localOffset = new THREE.Vector3(motion.ballOffset.x, motion.ballOffset.y, motion.ballOffset.z);
-        localOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), player.rotation.y);
-        const ballPosition = player.position.clone().add(localOffset);
-        ballRef.current.position.lerp(ballPosition, charging ? 0.5 : 0.78);
-        ballRef.current.rotation.x += motion.ballSpin.x;
-        ballRef.current.rotation.z += motion.ballSpin.z;
-      }
-
-      const oceanPositions = oceanGeometry.attributes.position as THREE.BufferAttribute;
-      for (let i = 0; i < oceanPositions.count; i += 1) {
-        const x = oceanPositions.getX(i);
-        const y = oceanPositions.getY(i);
-        oceanPositions.setZ(i, Math.sin(x * 0.35 + elapsed * 1.35) * 0.08 + Math.cos(y * 0.55 + elapsed) * 0.05);
-      }
-      oceanPositions.needsUpdate = true;
-
-      entryObjects.forEach((object, index) => {
-        object.rotation.y += 0.004 + index * 0.001;
-        object.position.y = Math.sin(elapsed * 1.8 + index) * 0.05;
-        const selected = activeEntryRef.current?.id === sceneEntries[index].id;
-        const target = selected ? 1.22 : 1;
-        object.scale.lerp(new THREE.Vector3(target, target, target), 0.12);
-      });
-
-      camera.position.lerp(new THREE.Vector3(nextPosition.x * 0.2, 6.9, nextPosition.z + 10.3), 0.045);
-      camera.lookAt(nextPosition.x * 0.18, 1.08, nextPosition.z - 2.2);
-      renderer.render(scene, camera);
-    };
-
-    animate();
-
-    return () => {
-      window.cancelAnimationFrame(animationId);
-      window.removeEventListener('resize', onResize);
-      renderer.dispose();
-      skyTexture?.dispose();
-      mount.removeChild(renderer.domElement);
-      playerGroupRef.current = null;
-      ballRef.current = null;
-    };
-  }, [updateActiveEntry]);
+  }, [ball]);
 
   useEffect(() => {
-    positionRef.current = playerPosition;
-    updateActiveEntry(playerPosition);
-  }, [playerPosition, updateActiveEntry]);
+    particlesRef.current = particles;
+  }, [particles]);
+
+  useEffect(() => {
+    completeTextRef.current = completeText;
+  }, [completeText]);
+
+  useEffect(() => {
+    sfxEnabledRef.current = sfxEnabled;
+  }, [sfxEnabled]);
+
+  useEffect(() => {
+    const nextAimPoint = { x: level.hoop.center.x, y: level.hoop.center.y };
+    aimPointRef.current = nextAimPoint;
+    setAimPoint(nextAimPoint);
+    setLevelAnimationMs(0);
+  }, [level.id, level.hoop.center.x, level.hoop.center.y]);
+
+  const playCue = (cue: AudioCue) => {
+    if (!sfxEnabledRef.current) return;
+    audioRef.current.play(cue);
+  };
+
+  const updateAimPoint = (point: Point) => {
+    aimPointRef.current = point;
+    setAimPoint(point);
+  };
+
+  const stopCharging = () => {
+    chargingRef.current = false;
+    chargeStartedAtRef.current = null;
+    setIsCharging(false);
+    setChargeMs(0);
+  };
+
+  const resetBall = (announce = true) => {
+    ballRef.current = null;
+    setBall(null);
+    setCompleteText('');
+    setAnnounceScore(false);
+    setParticles([]);
+    particlesRef.current = [];
+    stopCharging();
+    if (completeTimeoutRef.current !== null) {
+      window.clearTimeout(completeTimeoutRef.current);
+      completeTimeoutRef.current = null;
+    }
+    if (announce) {
+      setStatusText('Shot reset. Click anywhere to charge again.');
+      playCue('reset');
+    }
+  };
+
+  useEffect(() => {
+    resetBall(false);
+    setAttempts(0);
+    setStatusText(`${stage.label} - ${level.label} loaded. Click anywhere to charge, then release to shoot.`);
+  }, [level.label, level.id, stage.label]);
+
+  useEffect(() => {
+    const animate = (timestamp: number) => {
+      if (lastFrameRef.current === null) {
+        lastFrameRef.current = timestamp;
+      }
+
+      const delta = Math.min((timestamp - lastFrameRef.current) / 1000, 0.033);
+      lastFrameRef.current = timestamp;
+
+      if (level.hoopMotion) {
+        setLevelAnimationMs(timestamp);
+      }
+
+      if (chargingRef.current && chargeStartedAtRef.current !== null) {
+        setChargeMs(Math.min(MAX_CHARGE_MS, timestamp - chargeStartedAtRef.current));
+      }
+
+      const liveBall = ballRef.current;
+      if (liveBall && !completeTextRef.current) {
+        const physicsLevel = level.hoopMotion ? { ...level, hoop: resolveLevelHoop(level, timestamp) } : level;
+        const result = stepBall(liveBall, physicsLevel, delta);
+
+        if (result.bounced && timestamp - lastBounceAtRef.current > 90) {
+          lastBounceAtRef.current = timestamp;
+          playCue('bounce');
+          setStatusText('Nice bounce. Use the blocks to guide the ball.');
+        }
+
+        if (result.scored) {
+          ballRef.current = null;
+          setBall(null);
+          setCompleteText('YES!');
+          setAnnounceScore(true);
+          setStatusText('Bank shot scored. Next level is loading.');
+          const nextParticles = createConfetti(physicsLevel.hoop.center, 44);
+          particlesRef.current = nextParticles;
+          setParticles(nextParticles);
+          playCue('score');
+          playCue('confetti');
+          if (completeTimeoutRef.current !== null) {
+            window.clearTimeout(completeTimeoutRef.current);
+          }
+          completeTimeoutRef.current = window.setTimeout(() => {
+            setLevelCursor((current) => (current + 1) % ALL_HOME_LEVELS.length);
+            setCompleteText('');
+            setAnnounceScore(false);
+            setParticles([]);
+            particlesRef.current = [];
+          }, AUTO_ADVANCE_MS);
+        } else if (result.killed) {
+          ballRef.current = null;
+          setBall(null);
+          setStatusText('Missed. Try a different aim angle or hold length.');
+        } else {
+          ballRef.current = result.ball;
+          setBall(result.ball);
+        }
+      }
+
+      if (particlesRef.current.length > 0) {
+        const nextParticles = stepConfetti(particlesRef.current, delta);
+        particlesRef.current = nextParticles;
+        setParticles(nextParticles);
+      }
+
+      animationFrameRef.current = window.requestAnimationFrame(animate);
+    };
+
+    animationFrameRef.current = window.requestAnimationFrame(animate);
+    return () => {
+      if (animationFrameRef.current !== null) {
+        window.cancelAnimationFrame(animationFrameRef.current);
+      }
+      if (completeTimeoutRef.current !== null) {
+        window.clearTimeout(completeTimeoutRef.current);
+      }
+      audioRef.current.dispose();
+    };
+  }, [level]);
+
+  const onPointerDown = (event: React.PointerEvent<HTMLElement>) => {
+    if (event.button !== 0) return;
+    if (ballRef.current) {
+      resetBall();
+      return;
+    }
+    if (completeText) return;
+
+    const point = readPointer(event, level);
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Synthetic pointer events in tests may not create a capturable pointer.
+    }
+    chargingRef.current = true;
+    chargeStartedAtRef.current = performance.now();
+    updateAimPoint(point);
+    setIsCharging(true);
+    setChargeMs(0);
+    setStatusText('Charging. Move the mouse to aim, then release to shoot.');
+    playCue('charge');
+  };
+
+  const onPointerMove = (event: React.PointerEvent<HTMLElement>) => {
+    if (ballRef.current || completeText) return;
+
+    const point = readPointer(event, level);
+    updateAimPoint(point);
+  };
+
+  const onPointerUp = (event: React.PointerEvent<HTMLElement>) => {
+    if (!chargingRef.current || ballRef.current || completeText) {
+      stopCharging();
+      return;
+    }
+
+    const point = readPointer(event, level);
+    updateAimPoint(point);
+    const heldMs = Math.min(
+      MAX_CHARGE_MS,
+      chargeStartedAtRef.current === null ? chargeMs : performance.now() - chargeStartedAtRef.current,
+    );
+    const origin = createLaunchOrigin(shooterPosition, heldMs);
+    const velocity = toChargedLaunchVelocity(origin, point, heldMs);
+    const power = calculateChargePercent(heldMs);
+    const createdBall = createBall(origin, velocity);
+
+    stopCharging();
+    ballRef.current = createdBall;
+    setBall(createdBall);
+    setAttempts((current) => current + 1);
+    setStatusText(`Shot released at ${power}%. Track the arc and adjust your aim.`);
+  };
+
+  const toggleAudio = () => {
+    const nextEnabled = !audioEnabled;
+    setSfxEnabled(nextEnabled);
+    setMusicEnabled(nextEnabled);
+    setStatusText(nextEnabled ? 'Sound on.' : 'Sound off.');
+  };
 
   return (
-    <section className="home-scene-page">
-      <div className="sunset-backdrop" aria-hidden="true" />
-      <div className="home-copy">
-        <span className="eyebrow">SEASIDE SUNSET COURT</span>
-        <h1>HoopVerse 篮球宇宙</h1>
-        <p>海边夕阳球场、动态大海、3D 球员移动和投篮，把五大 NBA 知识入口放进一个可探索场景。</p>
-      </div>
+    <section className="home-game-page">
+      <h1 className="sr-only">Hold-to-shoot basketball</h1>
+      <div className="home-game-shell">
+        <div
+          className="home-game-board"
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          onPointerLeave={onPointerUp}
+          role="application"
+          aria-label="Basketball charge shot game area"
+          data-testid="home-game-board"
+        >
+          <div className="board-top-overlay">
+            <div className="shoot-sticker">
+              <div className="shoot-sticker-screen">
+                <div
+                  className="mini-ball"
+                  style={{ transform: `translateY(${-chargePercent * 0.22}px) scale(${1 + chargePercent / 640})` }}
+                />
+                <div className="mini-blob" />
+              </div>
+              <div className="shoot-sticker-footer">
+                <strong>{stickerText}</strong>
+                <span>{level.label}</span>
+              </div>
+            </div>
 
-      <div className="scene-frame">
-        <div ref={mountRef} className="three-mount" data-testid="three-mount">
-          {webglFallback ? (
-            <div className="webgl-fallback">
-              <strong>3D 渲染不可用</strong>
-              <span>当前浏览器或测试环境未开启 WebGL，真实浏览器访问本地服务即可看到球场。</span>
+            <div className="world-banner">
+              <strong>{stage.label}</strong>
+              <div className="world-progress" aria-label="Level progress">
+                {progressDots.map((dot) => (
+                  <span key={dot.id} className={`world-dot${dot.active ? ' active' : ''}`} />
+                ))}
+              </div>
+            </div>
+
+            <div className="home-game-actions">
+              <button type="button" onClick={() => resetBall()} aria-label="Reset shot">
+                <RotateCcw size={20} />
+              </button>
+              <button type="button" onClick={toggleAudio} aria-label="Toggle sound">
+                {audioEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
+              </button>
+              <button type="button" onClick={() => setShowHelp((current) => !current)} aria-label="Toggle help">
+                <Menu size={20} />
+              </button>
+              <button type="button" onClick={() => navigate('/')} aria-label="Home">
+                <Home size={20} />
+              </button>
+            </div>
+          </div>
+
+          <svg viewBox={`0 0 ${level.width} ${level.height}`} className="home-game-svg" aria-hidden="true">
+            <defs>
+              <pattern id={`court-grid-${level.id}`} width={level.cellSize} height={level.cellSize} patternUnits="userSpaceOnUse">
+                <path d={`M ${level.cellSize} 0 L 0 0 0 ${level.cellSize}`} fill="none" stroke={palette.grid} strokeWidth="2" />
+              </pattern>
+              <filter id={`soft-shadow-${level.id}`} x="-20%" y="-20%" width="140%" height="140%">
+                <feDropShadow dx="0" dy="8" stdDeviation="6" floodColor="rgba(0,0,0,0.22)" />
+              </filter>
+              <filter id={`ball-glow-${level.id}`} x="-90%" y="-90%" width="280%" height="280%">
+                <feGaussianBlur stdDeviation="5" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+
+            <rect x="0" y="0" width={activeLevel.width} height={activeLevel.height} fill={palette.background} />
+            <rect x="0" y="0" width={activeLevel.width} height={activeLevel.height} fill={`url(#court-grid-${level.id})`} opacity="0.86" />
+
+            {createPalmSilhouettes(activeLevel, palette)}
+
+            {activeLevel.obstacles.map((obstacle, index) => (
+              <g key={`${obstacle.x}-${obstacle.y}-${index}`} filter={`url(#soft-shadow-${level.id})`}>
+                <rect
+                  x={obstacle.x + 1.5}
+                  y={obstacle.y + 1.5}
+                  width={obstacle.width - 3}
+                  height={obstacle.height - 3}
+                  fill="#ffffff"
+                  stroke="#05070b"
+                  strokeWidth="3"
+                />
+                <rect x={obstacle.x + 3} y={obstacle.y + 3} width="10" height={obstacle.height - 6} fill={palette.wallStripe} />
+                <rect
+                  x={obstacle.x + 18}
+                  y={obstacle.y + 13}
+                  width={obstacle.width - 28}
+                  height={obstacle.height - 24}
+                  fill={palette.wallTile}
+                  stroke={palette.wallTileStroke}
+                  strokeWidth="1.5"
+                />
+              </g>
+            ))}
+
+            <g transform={`translate(${shooterPosition.x} ${shooterPosition.y - chargePose.lift}) scale(${chargePose.scaleX} ${chargePose.scaleY})`}>
+              <ellipse cx="0" cy="22" rx="35" ry="10" fill="rgba(0,0,0,0.2)" />
+              <ellipse cx="0" cy="0" rx="28" ry="24" fill="#ffbf47" stroke="#05070b" strokeWidth="4" />
+              <circle cx="-7" cy="-3" r="3.7" fill="#05070b" />
+              <circle cx="8" cy="-3" r="3.7" fill="#05070b" />
+              <circle cx="-10" cy="-8" r="4" fill="#ff9251" opacity="0.62" />
+              <circle cx="14" cy="-8" r="4" fill="#ff9251" opacity="0.62" />
+              <path d="M -10 8 Q 0 16 10 8" fill="none" stroke="#05070b" strokeWidth="4" strokeLinecap="round" />
+            </g>
+
+            {!currentBall ? (
+              <g transform={`translate(${launchOrigin.x} ${launchOrigin.y}) scale(${1 + chargePercent / 700})`} filter={`url(#ball-glow-${level.id})`}>
+                {isCharging ? (
+                  <circle
+                    r={28 + chargePercent * 0.08}
+                    fill="none"
+                    stroke="#ffffff"
+                    strokeWidth="4"
+                    opacity={0.35 + chargePercent / 220}
+                  />
+                ) : null}
+                {renderBasketball({ radius: 14 }, '#5ca4ff')}
+              </g>
+            ) : null}
+
+            {shotPreview.length > 0 ? (
+              <g>
+                <path
+                  d={`M ${launchOrigin.x} ${launchOrigin.y} L ${shotPreview.map((point) => `${point.x} ${point.y}`).join(' L ')}`}
+                  fill="none"
+                  stroke="#ffffff"
+                  strokeWidth="4"
+                  strokeDasharray="10 8"
+                  opacity="0.96"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                {shotPreview.map((point, index) => (
+                  <circle
+                    key={`shot-preview-${point.x}-${point.y}-${index}`}
+                    cx={point.x}
+                    cy={point.y}
+                    r={point.radius}
+                    fill="#ffffff"
+                    stroke="#05070b"
+                    strokeWidth="1.1"
+                    opacity={point.opacity}
+                  />
+                ))}
+              </g>
+            ) : null}
+
+            <g className="hoop-arrow">
+              <path
+                d={`M ${rimCenterX} ${rimTopY - 78} L ${rimCenterX} ${rimTopY - 28}`}
+                stroke="#ffffff"
+                strokeWidth="10"
+                strokeLinecap="round"
+              />
+              <path
+                d={`M ${rimCenterX - 24} ${rimTopY - 48} L ${rimCenterX} ${rimTopY - 18} L ${rimCenterX + 24} ${rimTopY - 48}`}
+                fill="none"
+                stroke="#05070b"
+                strokeWidth="8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d={`M ${rimCenterX - 18} ${rimTopY - 42} L ${rimCenterX} ${rimTopY - 20} L ${rimCenterX + 18} ${rimTopY - 42}`}
+                fill="none"
+                stroke="#ffffff"
+                strokeWidth="6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </g>
+
+            <g className="realistic-hoop" filter={`url(#soft-shadow-${level.id})`}>
+              <path
+                d={`M ${rimCenterX} ${activeLevel.hoop.backboard.y - 34} L ${rimCenterX} ${activeLevel.hoop.leftRim.y - 26}`}
+                stroke="#ffffff"
+                strokeWidth="10"
+                strokeLinecap="round"
+              />
+              <rect
+                x={activeLevel.hoop.backboard.x - 5}
+                y={activeLevel.hoop.backboard.y - 6}
+                width={activeLevel.hoop.backboard.width + 10}
+                height={activeLevel.hoop.backboard.height + 12}
+                rx="7"
+                fill="#f7fbff"
+                stroke="#05070b"
+                strokeWidth="3"
+              />
+              <ellipse
+                cx={rimCenterX}
+                cy={rimTopY + 7}
+                rx={(activeLevel.hoop.sensor.width + 12) / 2}
+                ry="13"
+                fill={palette.hoop}
+                stroke="#05070b"
+                strokeWidth="4"
+              />
+              <ellipse
+                cx={rimCenterX}
+                cy={rimTopY + 9}
+                rx={(activeLevel.hoop.sensor.width - 10) / 2}
+                ry="8"
+                fill="none"
+                stroke="#ffffff"
+                strokeWidth="2.5"
+                opacity="0.8"
+              />
+              {[0, 1, 2, 3, 4, 5].map((column) => {
+                const topX = rimCenterX - 30 + column * 12;
+                const bottomOffset = column < 3 ? -18 + column * 9 : (column - 3) * 9;
+                return (
+                  <path
+                    key={`net-column-${column}`}
+                    d={`M ${topX} ${rimTopY + 20} Q ${topX + bottomOffset * 0.2} ${rimTopY + 58} ${rimCenterX + bottomOffset} ${rimTopY + 118}`}
+                    fill="none"
+                    stroke="#05070b"
+                    strokeWidth="6"
+                    strokeLinecap="round"
+                  />
+                );
+              })}
+              {[0, 1, 2, 3].map((row) => {
+                const y = rimTopY + 42 + row * 18;
+                return (
+                  <path
+                    key={`net-row-${row}`}
+                    d={`M ${rimCenterX - 30 + row * 3} ${y} Q ${rimCenterX} ${y + 8} ${rimCenterX + 30 - row * 3} ${y}`}
+                    fill="none"
+                    stroke="#ffffff"
+                    strokeWidth="4"
+                    strokeLinecap="round"
+                  />
+                );
+              })}
+            </g>
+
+            {currentBall ? (
+              <g>
+                <path
+                  d={`M ${currentBall.previousX} ${currentBall.previousY} L ${currentBall.x} ${currentBall.y}`}
+                  stroke="#e6fbff"
+                  strokeWidth="12"
+                  strokeLinecap="round"
+                  opacity="0.38"
+                />
+                <g transform={`translate(${currentBall.x} ${currentBall.y})`} filter={`url(#ball-glow-${level.id})`}>
+                  {renderBasketball(currentBall, '#ff8c1a')}
+                </g>
+              </g>
+            ) : null}
+          </svg>
+
+          <div className={`charge-meter${isCharging ? ' charging' : ''}`} aria-label="Shot charge meter">
+            <div className="charge-track">
+              <span className="perfect-zone" />
+              <span className="charge-fill" style={{ width: `${chargePercent}%` }} />
+            </div>
+            <div className="charge-labels">
+              <span>soft</span>
+              <strong>{isCharging ? `${chargePercent}%` : 'hold'}</strong>
+              <span>hard</span>
+            </div>
+          </div>
+
+          <div className="board-bottom-overlay">
+            <div className="status-pill" data-testid="home-game-status">
+              <strong>{announceScore ? 'Scored' : `Attempt ${attempts}`}</strong>
+              <span>{statusText}</span>
+            </div>
+            {showHelp ? (
+              <div className="hint-pill">
+                <span>Click anywhere to charge, move the mouse to aim, then release.</span>
+                <span>Sound: {audioEnabled ? 'on' : 'off'}</span>
+              </div>
+            ) : null}
+          </div>
+
+          {particles.map((particle) => (
+            <span
+              key={particle.id}
+              className="confetti-piece"
+              style={{
+                left: `${(particle.x / level.width) * 100}%`,
+                top: `${(particle.y / level.height) * 100}%`,
+                width: `${particle.size}px`,
+                height: `${Math.max(6, particle.size * 0.58)}px`,
+                background: particle.color,
+                opacity: Math.max(0, 1 - particle.life / particle.maxLife),
+                transform: `translate(-50%, -50%) rotate(${particle.rotation}deg)`,
+              }}
+            />
+          ))}
+
+          {completeText ? (
+            <div className="level-complete" role="status" aria-live="polite">
+              <strong>{completeText}</strong>
+              <span>Bank!</span>
             </div>
           ) : null}
-        </div>
-
-        <div className="entry-ribbon" aria-label="首页场景入口">
-          {entryLabels.map((entry) => (
-            <button
-              key={entry.id}
-              className={`entry-chip${activeEntry?.id === entry.id ? ' active' : ''}`}
-              style={entry.style}
-              onClick={() => navigate(entry.path)}
-              type="button"
-            >
-              <strong>{entry.label}</strong>
-              <span>{entryDescription[entry.id]}</span>
-            </button>
-          ))}
-        </div>
-
-        <div className="control-panel">
-          <div>
-            <strong>方向键移动</strong>
-            <span>支持斜向移动，按住 D 蓄力，松开 D 出手</span>
-          </div>
-          <div className="control-buttons" aria-label="触控移动按钮">
-            <button type="button" onClick={() => move('ArrowUp')} aria-label="向上移动">
-              <ArrowUp size={18} />
-            </button>
-            <button type="button" onClick={() => move('ArrowLeft')} aria-label="向左移动">
-              <ArrowLeft size={18} />
-            </button>
-            <button
-              type="button"
-              onMouseDown={startCharge}
-              onMouseUp={finishCharge}
-              onMouseLeave={finishCharge}
-              onTouchStart={startCharge}
-              onTouchEnd={finishCharge}
-              aria-label="投篮蓄力"
-            >
-              D
-            </button>
-            <button type="button" onClick={() => move('ArrowRight')} aria-label="向右移动">
-              <ArrowRight size={18} />
-            </button>
-            <button type="button" onClick={() => move('ArrowDown')} aria-label="向下移动">
-              <ArrowDown size={18} />
-            </button>
-          </div>
-        </div>
-
-        <div className="scene-status">
-          <span>{shotFeedback}</span>
-          {activeEntry ? (
-            <button type="button" onClick={() => navigate(activeEntry.path)}>
-              <CornerDownLeft size={16} />
-              进入 {activeEntry.label}
-            </button>
-          ) : (
-            <span>靠近发光区域会出现入口提示</span>
-          )}
-        </div>
-
-        <div className={`charge-meter${isCharging ? ' charging' : ''}`} aria-label="投篮蓄力条">
-          <div className="charge-track">
-            <span className="perfect-zone" />
-            <span className="charge-fill" style={{ width: `${chargePercent}%` }} />
-          </div>
-          <div className="charge-labels">
-            <span>太短</span>
-            <strong>{isCharging ? `${chargePercent}%` : '按住 D'}</strong>
-            <span>太长</span>
-          </div>
         </div>
       </div>
     </section>

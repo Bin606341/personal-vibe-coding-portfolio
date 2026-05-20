@@ -14,18 +14,16 @@ const renderRoute = (path = '/') =>
   );
 
 describe('HoopVerse routes', () => {
-  it('renders the home route with controls and immersive entries', () => {
+  it('renders the home route with the charge-shot wall game', () => {
     renderRoute('/');
 
-    expect(screen.getByRole('heading', { name: /HoopVerse 篮球宇宙/i })).toBeInTheDocument();
-    expect(screen.getByText(/方向键移动/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/按住 D/i).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByLabelText('投篮蓄力条')).toBeInTheDocument();
-    expect(screen.getAllByText('现役球员区').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('历史名人堂区').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('教学区').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('战术区').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('历史经典绝杀区').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole('heading', { name: /Hold-to-shoot basketball/i })).toBeInTheDocument();
+    expect(screen.getByRole('application', { name: 'Basketball charge shot game area' })).toBeInTheDocument();
+    expect(screen.getAllByText(/WORLD 1/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/SHOOT!/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/Click anywhere/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole('button', { name: 'Toggle sound' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reset shot' })).toBeInTheDocument();
   });
 
   it('renders current players with a complete 30 team grid', () => {

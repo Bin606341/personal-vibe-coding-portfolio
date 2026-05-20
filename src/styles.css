@@ -149,6 +149,335 @@ main {
   padding: clamp(16px, 3vw, 34px);
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.home-game-page {
+  display: grid;
+  height: calc(100dvh - 72px);
+  min-height: calc(100dvh - 72px);
+  padding: clamp(8px, 1.4vw, 14px);
+  overflow: hidden;
+  background: linear-gradient(180deg, #d7f2ff 0%, #c9ecff 100%);
+}
+
+.home-game-shell {
+  width: min(1280px, 100%);
+  height: 100%;
+  margin: 0 auto;
+  display: grid;
+  place-items: center;
+}
+
+.home-game-board {
+  position: relative;
+  overflow: hidden;
+  width: min(100%, calc((100dvh - 108px) * 1.6667));
+  max-height: 100%;
+  aspect-ratio: 5 / 3;
+  border: 6px solid #ffffff;
+  border-radius: 18px;
+  background: #4ec2f4;
+  box-shadow:
+    0 18px 48px rgba(26, 87, 130, 0.22),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.4);
+  touch-action: none;
+  user-select: none;
+}
+
+.home-game-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.board-top-overlay,
+.board-bottom-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  pointer-events: none;
+}
+
+.board-top-overlay {
+  top: 0;
+}
+
+.board-bottom-overlay {
+  bottom: 0;
+  align-items: end;
+}
+
+.shoot-sticker,
+.status-pill,
+.hint-pill {
+  pointer-events: auto;
+}
+
+.shoot-sticker {
+  display: grid;
+  width: min(200px, 23vw);
+  min-width: 160px;
+  padding: 8px;
+  border: 3px solid #05070b;
+  border-radius: 14px;
+  background: #f7f3ee;
+  box-shadow: 0 7px 0 rgba(5, 7, 11, 0.12);
+  transform: rotate(-0.6deg);
+}
+
+.shoot-sticker-screen {
+  position: relative;
+  min-height: 108px;
+  border: 2px solid #05070b;
+  border-radius: 10px;
+  background: #86d4f8;
+}
+
+.mini-ball,
+.mini-blob {
+  position: absolute;
+}
+
+.mini-ball {
+  top: 10px;
+  right: 18px;
+  width: 24px;
+  height: 24px;
+  border: 3px solid #05070b;
+  border-radius: 50%;
+  background:
+    linear-gradient(90deg, transparent 46%, #05070b 46%, #05070b 54%, transparent 54%),
+    linear-gradient(transparent 46%, #05070b 46%, #05070b 54%, transparent 54%);
+}
+
+.mini-ball::before,
+.mini-ball::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border: 3px solid #05070b;
+  border-radius: 50%;
+  clip-path: inset(0 50% 0 0);
+}
+
+.mini-ball::after {
+  clip-path: inset(0 0 0 50%);
+}
+
+.mini-blob {
+  left: 28px;
+  bottom: 12px;
+  width: 44px;
+  height: 50px;
+  border: 3px solid #05070b;
+  border-radius: 28px 24px 20px 18px;
+  background: linear-gradient(180deg, #ffd46a 0%, #ffb347 100%);
+  transform: rotate(18deg);
+}
+
+.mini-blob::before,
+.mini-blob::after {
+  content: '';
+  position: absolute;
+  top: 19px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #05070b;
+}
+
+.mini-blob::before {
+  left: 13px;
+}
+
+.mini-blob::after {
+  right: 11px;
+}
+
+.shoot-sticker-footer {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 6px 2px;
+  color: #05070b;
+}
+
+.shoot-sticker-footer strong {
+  font-size: clamp(20px, 1.8vw, 30px);
+  font-weight: 900;
+  line-height: 1;
+}
+
+.shoot-sticker-footer span {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.world-banner {
+  padding-top: 8px;
+  color: #ffffff;
+  text-align: center;
+  text-shadow: 0 4px 0 rgba(22, 69, 101, 0.2);
+  pointer-events: none;
+}
+
+.world-banner strong {
+  display: block;
+  font-size: clamp(22px, 2.5vw, 34px);
+  font-weight: 900;
+  line-height: 1;
+}
+
+.world-progress {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.world-dot {
+  width: 18px;
+  height: 18px;
+  border: 3px solid #ffffff;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.world-dot.active {
+  background: #ffffff;
+}
+
+.home-game-actions {
+  display: flex;
+  gap: 10px;
+  pointer-events: auto;
+}
+
+.home-game-actions button {
+  display: inline-grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #ffffff;
+  box-shadow: 0 6px 0 rgba(11, 57, 88, 0.15);
+}
+
+.home-game-actions button svg {
+  stroke: #ffffff;
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.12));
+}
+
+.home-game-actions button:nth-child(1) {
+  background: #7cd7ff;
+}
+
+.home-game-actions button:nth-child(2) {
+  background: #84c7ff;
+}
+
+.home-game-actions button:nth-child(3) {
+  background: #87d8ff;
+}
+
+.home-game-actions button:nth-child(4) {
+  background: #8ad0ff;
+}
+
+.home-game-actions button:hover {
+  transform: translateY(-1px);
+}
+
+.status-pill,
+.hint-pill {
+  display: grid;
+  gap: 4px;
+  max-width: min(430px, 48vw);
+  padding: 9px 11px;
+  border: 3px solid #05070b;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #05070b;
+  box-shadow: 0 6px 0 rgba(5, 7, 11, 0.1);
+}
+
+.status-pill strong {
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.status-pill span,
+.hint-pill span {
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.hint-pill {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.level-complete {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(3px);
+  text-align: center;
+  pointer-events: none;
+}
+
+.level-complete strong {
+  color: #ffffff;
+  font-size: clamp(68px, 12vw, 140px);
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-shadow:
+    0 6px 0 #05070b,
+    0 12px 26px rgba(0, 0, 0, 0.18);
+}
+
+.level-complete span {
+  color: #ffffff;
+  font-size: 26px;
+  font-weight: 900;
+  text-shadow: 0 4px 0 rgba(5, 7, 11, 0.22);
+}
+
+.confetti-piece {
+  position: absolute;
+  z-index: 5;
+  border: 2px solid rgba(5, 7, 11, 0.18);
+  border-radius: 4px;
+  pointer-events: none;
+}
+
 .sunset-backdrop {
   position: absolute;
   inset: 0;
@@ -201,7 +530,10 @@ main {
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: var(--radius);
   overflow: hidden;
-  background: rgba(5, 9, 17, 0.36);
+  background:
+    linear-gradient(180deg, rgba(255, 160, 186, 0.1), rgba(18, 22, 32, 0.18) 62%, rgba(9, 11, 18, 0.3)),
+    url('/media/home-seaside-sunset-court.png') center 43% / cover no-repeat,
+    rgba(5, 9, 17, 0.36);
   box-shadow: 0 24px 90px rgba(0, 0, 0, 0.42);
 }
 
@@ -235,10 +567,10 @@ main {
 
 .entry-ribbon {
   position: absolute;
-  top: 18px;
+  top: 14px;
   left: 0;
   right: 0;
-  height: 82px;
+  height: 62px;
   pointer-events: none;
 }
 
@@ -247,10 +579,10 @@ main {
   top: 0;
   display: grid;
   gap: 3px;
-  width: min(18vw, 180px);
-  min-width: 112px;
-  min-height: 58px;
-  padding: 10px 12px;
+  width: min(14vw, 150px);
+  min-width: 104px;
+  min-height: 46px;
+  padding: 7px 9px;
   border: 1px solid rgba(255, 255, 255, 0.17);
   border-radius: var(--radius);
   background: rgba(10, 17, 31, 0.76);
@@ -271,12 +603,12 @@ main {
 }
 
 .entry-chip strong {
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .entry-chip span {
   color: var(--text-soft);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .control-panel,
@@ -352,31 +684,32 @@ main {
 .charge-meter {
   position: absolute;
   left: 50%;
-  bottom: 92px;
-  width: min(360px, calc(100% - 36px));
-  padding: 10px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  bottom: 50px;
+  width: min(248px, calc(100% - 36px));
+  padding: 6px 8px;
+  z-index: 5;
+  border: 3px solid #05070b;
   border-radius: var(--radius);
-  background: rgba(7, 9, 19, 0.76);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28);
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 6px 0 rgba(5, 7, 11, 0.14);
   transform: translateX(-50%);
   backdrop-filter: blur(14px);
 }
 
 .charge-track {
   position: relative;
-  height: 16px;
+  height: 11px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 2px solid #05070b;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(72, 199, 255, 0.28), rgba(255, 138, 42, 0.38), rgba(255, 93, 143, 0.34));
+  background: linear-gradient(90deg, rgba(124, 215, 255, 0.3), rgba(255, 209, 102, 0.38), rgba(255, 93, 143, 0.34));
 }
 
 .charge-fill {
   position: absolute;
   inset: 0 auto 0 0;
   border-radius: inherit;
-  background: linear-gradient(90deg, #48c7ff, #ffd166);
+  background: linear-gradient(90deg, #4cc9f0, #ffd166, #ff5d8f);
   box-shadow: 0 0 20px rgba(255, 209, 102, 0.6);
   transition: width 80ms linear;
 }
@@ -388,9 +721,9 @@ main {
   width: 17%;
   top: 0;
   bottom: 0;
-  border-left: 2px solid rgba(255, 255, 255, 0.78);
-  border-right: 2px solid rgba(255, 255, 255, 0.78);
-  background: rgba(98, 230, 166, 0.58);
+  border-left: 1px solid rgba(5, 7, 11, 0.65);
+  border-right: 1px solid rgba(5, 7, 11, 0.65);
+  background: rgba(98, 230, 166, 0.62);
 }
 
 .charge-meter.charging .perfect-zone {
@@ -400,14 +733,15 @@ main {
 .charge-labels {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
-  margin-top: 7px;
-  color: var(--text-soft);
-  font-size: 12px;
+  gap: 8px;
+  margin-top: 4px;
+  color: #05070b;
+  font-size: 10px;
+  font-weight: 800;
 }
 
 .charge-labels strong {
-  color: var(--gold);
+  color: #ff8a2a;
 }
 
 .content-page {
@@ -977,12 +1311,31 @@ dd {
   }
 
   .charge-meter {
-    bottom: 80px;
+    bottom: 58px;
   }
 
   .split-layout,
   .tactic-card {
     grid-template-columns: 1fr;
+  }
+
+  .home-game-board {
+    width: 100%;
+  }
+
+  .home-game-svg {
+    height: 100%;
+  }
+
+  .board-top-overlay,
+  .board-bottom-overlay {
+    gap: 9px;
+    padding: 11px;
+  }
+
+  .shoot-sticker {
+    width: 156px;
+    min-width: 156px;
   }
 
   .detail-panel {
@@ -1005,6 +1358,70 @@ dd {
     padding: 12px;
   }
 
+  .home-game-page {
+    height: auto;
+    min-height: calc(100dvh - 72px);
+    padding: 12px;
+    overflow: auto;
+  }
+
+  .home-game-actions button {
+    width: 42px;
+    height: 42px;
+  }
+
+  .charge-meter {
+    bottom: 54px;
+    width: min(228px, calc(100% - 28px));
+  }
+
+  .home-game-board {
+    width: 100%;
+    min-height: 440px;
+    aspect-ratio: auto;
+  }
+
+  .home-game-svg {
+    min-height: 440px;
+  }
+
+  .board-top-overlay,
+  .board-bottom-overlay {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .board-top-overlay {
+    align-items: flex-start;
+  }
+
+  .board-bottom-overlay {
+    align-items: stretch;
+  }
+
+  .world-banner {
+    width: 100%;
+    text-align: left;
+  }
+
+  .home-game-actions {
+    align-self: flex-end;
+  }
+
+  .shoot-sticker {
+    width: 142px;
+    min-width: 142px;
+  }
+
+  .shoot-sticker-screen {
+    min-height: 82px;
+  }
+
+  .status-pill,
+  .hint-pill {
+    max-width: 100%;
+  }
+
   .scene-frame {
     min-height: 700px;
   }
@@ -1012,7 +1429,7 @@ dd {
   .entry-ribbon {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 8px;
+    gap: 7px;
     top: 12px;
     left: 12px;
     right: 12px;
@@ -1022,8 +1439,8 @@ dd {
   .entry-chip {
     position: static;
     width: 100%;
-    min-height: 44px;
-    padding: 8px 10px;
+    min-height: 40px;
+    padding: 7px 10px;
   }
 
   .entry-chip span {

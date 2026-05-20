@@ -1,0 +1,8 @@
+﻿{
+    "title":  "Man",
+    "author":  "Quaternius",
+    "license":  "CC0 1.0",
+    "sourceUrl":  "https://poly.pizza/m/HMnuH5geEG",
+    "downloadUrl":  "https://static.poly.pizza/3746be88-6799-4817-929b-6bc067c47caa.glb",
+    "notes":  "Animated low-poly humanoid GLB used as the real player.glb base. Basketball-specific motion is layered by the local Three.js controller."
+}
