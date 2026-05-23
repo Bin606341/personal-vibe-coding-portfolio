@@ -26,6 +26,25 @@ describe('HoopVerse routes', () => {
     expect(screen.getByRole('button', { name: 'Reset shot' })).toBeInTheDocument();
   });
 
+  it('renders a portfolio section with live project links', () => {
+    renderRoute('/');
+
+    expect(screen.getByRole('heading', { name: '个人作品集' })).toBeInTheDocument();
+    expect(screen.getAllByTestId('portfolio-project-card')).toHaveLength(3);
+    expect(screen.getByRole('link', { name: /在线预览 3D小球弹跳/i })).toHaveAttribute(
+      'href',
+      'https://bouncing-ball-3d.vercel.app/',
+    );
+    expect(screen.getByRole('link', { name: /在线预览 健身网站/i })).toHaveAttribute(
+      'href',
+      'https://fitness-website-ih2m66.vercel.app/',
+    );
+    expect(screen.getByRole('link', { name: /源码 3D小球弹跳/i })).toHaveAttribute(
+      'href',
+      'https://github.com/Bin606341/bouncing-ball-3d',
+    );
+  });
+
   it('renders current players with a complete 30 team grid', () => {
     renderRoute('/players');
 

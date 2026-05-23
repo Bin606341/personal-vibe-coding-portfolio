@@ -14,7 +14,7 @@ const holdOnBoard = async (board: Locator, at: { x: number; y: number }) => {
 test('home scene renders a visible charge-shot board', async ({ page }) => {
   await page.goto('/');
 
-  await expect(page.getByRole('heading')).toHaveCount(1);
+  await expect(page.getByRole('heading', { name: 'Hold-to-shoot basketball' })).toBeAttached();
   const board = page.getByTestId('home-game-board');
   await expect(board).toBeVisible();
   await expect(page.locator('.home-game-svg')).toBeVisible();
@@ -56,6 +56,21 @@ test('home scene renders a visible charge-shot board', async ({ page }) => {
     clientX: holdPoint.x,
     clientY: holdPoint.y,
   });
+});
+
+test('home page presents portfolio project links', async ({ page }) => {
+  await page.goto('/');
+
+  await expect(page.getByRole('heading', { name: '个人作品集' })).toBeVisible();
+  await expect(page.getByTestId('portfolio-project-card')).toHaveCount(3);
+  await expect(page.getByRole('link', { name: /在线预览 3D小球弹跳/ })).toHaveAttribute(
+    'href',
+    'https://bouncing-ball-3d.vercel.app/',
+  );
+  await expect(page.getByRole('link', { name: /在线预览 健身网站/ })).toHaveAttribute(
+    'href',
+    'https://fitness-website-ih2m66.vercel.app/',
+  );
 });
 
 test('home game charges while holding and launches on release with a short dashed shot guide', async ({ page }) => {
