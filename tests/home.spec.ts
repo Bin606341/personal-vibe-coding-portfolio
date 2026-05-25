@@ -11,8 +11,24 @@ const holdOnBoard = async (board: Locator, at: { x: number; y: number }) => {
   });
 };
 
-test('home scene renders a visible charge-shot board', async ({ page }) => {
+test('portfolio landing presents three project choices', async ({ page }) => {
   await page.goto('/');
+
+  await expect(page.getByRole('heading', { name: '选择你想看的作品' })).toBeVisible();
+  await expect(page.getByTestId('portfolio-project-card')).toHaveCount(3);
+  await expect(page.getByRole('link', { name: /进入 篮球网站/ })).toHaveAttribute('href', '/basketball');
+  await expect(page.getByRole('link', { name: /在线预览 3D小球弹跳/ })).toHaveAttribute(
+    'href',
+    'https://bouncing-ball-3d.vercel.app/',
+  );
+  await expect(page.getByRole('link', { name: /在线预览 健身网站/ })).toHaveAttribute(
+    'href',
+    'https://fitness-website-ih2m66.vercel.app/',
+  );
+});
+
+test('basketball route renders a visible charge-shot board', async ({ page }) => {
+  await page.goto('/basketball');
 
   await expect(page.getByRole('heading', { name: 'Hold-to-shoot basketball' })).toBeAttached();
   const board = page.getByTestId('home-game-board');
@@ -58,23 +74,8 @@ test('home scene renders a visible charge-shot board', async ({ page }) => {
   });
 });
 
-test('home page presents portfolio project links', async ({ page }) => {
-  await page.goto('/');
-
-  await expect(page.getByRole('heading', { name: '个人作品集' })).toBeVisible();
-  await expect(page.getByTestId('portfolio-project-card')).toHaveCount(3);
-  await expect(page.getByRole('link', { name: /在线预览 3D小球弹跳/ })).toHaveAttribute(
-    'href',
-    'https://bouncing-ball-3d.vercel.app/',
-  );
-  await expect(page.getByRole('link', { name: /在线预览 健身网站/ })).toHaveAttribute(
-    'href',
-    'https://fitness-website-ih2m66.vercel.app/',
-  );
-});
-
 test('home game charges while holding and launches on release with a short dashed shot guide', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/basketball');
   const board = page.getByTestId('home-game-board');
   await expect(board).toBeVisible();
 
@@ -104,6 +105,7 @@ test('top navigation reaches all content sections', async ({ page }) => {
   await page.goto('/');
 
   const navTargets = [
+    ['/basketball', '[data-testid="home-game-board"]'],
     ['/players', '[data-testid="team-card"]'],
     ['/hall', '.content-page'],
     ['/training', '.content-page'],

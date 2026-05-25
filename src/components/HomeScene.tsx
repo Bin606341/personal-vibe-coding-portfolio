@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Code2, Dumbbell, ExternalLink, Gamepad2, Github, Home, Menu, RotateCcw, Trophy, Volume2, VolumeX } from 'lucide-react';
+import { Home, Menu, RotateCcw, Volume2, VolumeX } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
   MAX_CHARGE_MS,
@@ -22,18 +22,6 @@ import { createBall, stepBall, type BallState } from '../home/physics';
 
 type AudioCue = 'charge' | 'bounce' | 'score' | 'confetti' | 'reset';
 
-type PortfolioProject = {
-  title: string;
-  category: string;
-  summary: string;
-  highlights: string[];
-  tech: string[];
-  liveUrl: string;
-  sourceUrl: string;
-  Icon: typeof Trophy;
-  accent: 'orange' | 'blue' | 'green';
-};
-
 type ThemePalette = {
   background: string;
   grid: string;
@@ -45,41 +33,6 @@ type ThemePalette = {
 };
 
 const AUTO_ADVANCE_MS = 1300;
-const portfolioProjects: PortfolioProject[] = [
-  {
-    title: '篮球网站',
-    category: 'React 互动内容站',
-    summary: '以篮球主题包装交互首页、球员资料、教学资源和战术内容，展示完整前端页面组织能力。',
-    highlights: ['React Router 多页面结构', '投篮小游戏与动画反馈', '本地媒体资源与响应式布局'],
-    tech: ['React', 'TypeScript', 'Vite', 'Three.js'],
-    liveUrl: 'https://personal-vibe-coding-portfolio.vercel.app/',
-    sourceUrl: 'https://github.com/Bin606341/personal-vibe-coding-portfolio',
-    Icon: Trophy,
-    accent: 'orange',
-  },
-  {
-    title: '3D小球弹跳',
-    category: '网页小游戏',
-    summary: '一个轻量级 3D 小球弹跳体验，突出物理运动、实时交互和游戏化视觉表达。',
-    highlights: ['单页小游戏体验', '运动反馈与场景表现', '静态部署到 Vercel'],
-    tech: ['HTML', 'CSS', 'JavaScript'],
-    liveUrl: 'https://bouncing-ball-3d.vercel.app/',
-    sourceUrl: 'https://github.com/Bin606341/bouncing-ball-3d',
-    Icon: Gamepad2,
-    accent: 'blue',
-  },
-  {
-    title: '健身网站',
-    category: '静态产品网站',
-    summary: '围绕健身内容、动作教学和饮食计划搭建的展示型网站，强调信息层级和视觉完成度。',
-    highlights: ['健身内容分区展示', '真实图片与视频资源', '移动端适配'],
-    tech: ['HTML', 'CSS', 'JavaScript'],
-    liveUrl: 'https://fitness-website-ih2m66.vercel.app/',
-    sourceUrl: 'https://github.com/Bin606341/fitness-website',
-    Icon: Dumbbell,
-    accent: 'green',
-  },
-];
 const palettes: Record<LevelTheme, ThemePalette> = {
   ocean: {
     background: '#4ec2f4',
@@ -540,8 +493,7 @@ export const HomeScene = () => {
   };
 
   return (
-    <>
-      <section className="home-game-page">
+    <section className="home-game-page">
       <h1 className="sr-only">Hold-to-shoot basketball</h1>
       <div className="home-game-shell">
         <div
@@ -848,81 +800,6 @@ export const HomeScene = () => {
           ) : null}
         </div>
       </div>
-      <a className="portfolio-jump" href="#portfolio">
-        查看作品集
-      </a>
     </section>
-
-      <section id="portfolio" className="portfolio-section" aria-labelledby="portfolio-heading">
-        <div className="portfolio-inner">
-          <div className="portfolio-header">
-            <span className="eyebrow">Frontend Portfolio</span>
-            <h2 id="portfolio-heading">个人作品集</h2>
-            <p>
-              这里集中展示 3 个已上线项目：一个 React 篮球内容站、一个网页小游戏和一个健身展示网站。
-              每个项目都提供在线预览和 GitHub 源码，方便招聘方快速查看成果。
-            </p>
-          </div>
-
-          <div className="portfolio-grid">
-            {portfolioProjects.map((project) => {
-              const Icon = project.Icon;
-
-              return (
-                <article
-                  className={`portfolio-project-card accent-${project.accent}`}
-                  data-testid="portfolio-project-card"
-                  key={project.title}
-                >
-                  <div className="portfolio-card-visual">
-                    <Icon size={34} aria-hidden="true" />
-                    <span>{project.category}</span>
-                  </div>
-                  <div className="portfolio-card-body">
-                    <h3>{project.title}</h3>
-                    <p>{project.summary}</p>
-                    <ul>
-                      {project.highlights.map((highlight) => (
-                        <li key={highlight}>{highlight}</li>
-                      ))}
-                    </ul>
-                    <div className="tag-row">
-                      {project.tech.map((item) => (
-                        <span key={item}>{item}</span>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="portfolio-actions">
-                    <a
-                      aria-label={`在线预览 ${project.title}`}
-                      href={project.liveUrl}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      <ExternalLink size={17} aria-hidden="true" />
-                      <span>在线预览</span>
-                    </a>
-                    <a
-                      aria-label={`源码 ${project.title}`}
-                      href={project.sourceUrl}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      <Github size={17} aria-hidden="true" />
-                      <span>源码</span>
-                    </a>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-
-          <div className="portfolio-contact-strip" aria-label="Portfolio summary">
-            <Code2 size={20} aria-hidden="true" />
-            <span>主入口可放入简历：展示项目、线上地址、源码和技术栈，面试官打开一个链接就能看到完整作品列表。</span>
-          </div>
-        </div>
-      </section>
-    </>
   );
 };

@@ -171,35 +171,6 @@ main {
   background: linear-gradient(180deg, #d7f2ff 0%, #c9ecff 100%);
 }
 
-.portfolio-jump {
-  position: absolute;
-  left: 50%;
-  bottom: 18px;
-  z-index: 8;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 40px;
-  padding: 8px 14px;
-  border: 3px solid #05070b;
-  border-radius: var(--radius);
-  background: #ffffff;
-  color: #05070b;
-  font-size: 13px;
-  font-weight: 900;
-  box-shadow: 0 6px 0 rgba(5, 7, 11, 0.16);
-  transform: translateX(-50%);
-  transition:
-    transform 160ms ease,
-    box-shadow 160ms ease;
-}
-
-.portfolio-jump:hover,
-.portfolio-jump:focus-visible {
-  box-shadow: 0 8px 0 rgba(5, 7, 11, 0.16);
-  transform: translate(-50%, -2px);
-}
-
 .home-game-shell {
   width: min(1280px, 100%);
   height: 100%;
@@ -774,33 +745,36 @@ main {
   color: #ff8a2a;
 }
 
-.portfolio-section {
-  padding: clamp(36px, 6vw, 82px) clamp(16px, 4vw, 56px);
+.portfolio-landing {
+  min-height: calc(100vh - 72px);
+  padding: clamp(32px, 6vw, 76px) clamp(16px, 4vw, 56px);
   background:
+    radial-gradient(circle at 12% 8%, rgba(255, 138, 42, 0.2), transparent 30%),
+    radial-gradient(circle at 92% 14%, rgba(72, 199, 255, 0.18), transparent 32%),
     linear-gradient(180deg, #080911 0%, #111827 58%, #080b13 100%),
     var(--bg);
 }
 
-.portfolio-inner {
+.portfolio-landing-inner {
   width: min(1180px, 100%);
   margin: 0 auto;
 }
 
-.portfolio-header {
+.portfolio-landing-header {
   display: grid;
   gap: 10px;
-  max-width: 820px;
-  margin-bottom: 22px;
+  max-width: 900px;
+  margin-bottom: 24px;
 }
 
-.portfolio-header h2 {
+.portfolio-landing-header h1 {
   margin: 0;
-  font-size: clamp(30px, 4vw, 56px);
-  line-height: 1.08;
+  font-size: clamp(38px, 6vw, 78px);
+  line-height: 1.02;
   letter-spacing: 0;
 }
 
-.portfolio-header p {
+.portfolio-landing-header p {
   margin: 0;
   color: #dce8f7;
   font-size: clamp(15px, 1.4vw, 18px);
@@ -824,34 +798,58 @@ main {
   box-shadow: 0 20px 54px rgba(0, 0, 0, 0.26);
 }
 
-.portfolio-card-visual {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 116px;
-  padding: 18px;
-  color: #ffffff;
+.portfolio-card-preview {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  background: rgba(255, 255, 255, 0.06);
 }
 
-.portfolio-card-visual span {
-  max-width: 170px;
+.portfolio-card-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 220ms ease;
+}
+
+.portfolio-project-card:hover .portfolio-card-preview img,
+.portfolio-project-card:focus-within .portfolio-card-preview img {
+  transform: scale(1.03);
+}
+
+.portfolio-card-badge {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: calc(100% - 24px);
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--radius);
+  background: rgba(7, 9, 19, 0.76);
+  color: #ffffff;
+  backdrop-filter: blur(14px);
+}
+
+.portfolio-card-badge span {
   font-size: 13px;
   font-weight: 900;
-  line-height: 1.35;
-  text-align: right;
 }
 
-.portfolio-project-card.accent-orange .portfolio-card-visual {
-  background: linear-gradient(135deg, rgba(255, 138, 42, 0.92), rgba(72, 199, 255, 0.32));
+.portfolio-project-card.accent-orange {
+  border-color: rgba(255, 138, 42, 0.28);
 }
 
-.portfolio-project-card.accent-blue .portfolio-card-visual {
-  background: linear-gradient(135deg, rgba(72, 199, 255, 0.88), rgba(255, 93, 143, 0.28));
+.portfolio-project-card.accent-blue {
+  border-color: rgba(72, 199, 255, 0.28);
 }
 
-.portfolio-project-card.accent-green .portfolio-card-visual {
-  background: linear-gradient(135deg, rgba(98, 230, 166, 0.82), rgba(255, 209, 102, 0.3));
+.portfolio-project-card.accent-green {
+  border-color: rgba(98, 230, 166, 0.28);
 }
 
 .portfolio-card-body {
@@ -860,7 +858,7 @@ main {
   padding: 18px;
 }
 
-.portfolio-card-body h3 {
+.portfolio-card-body h2 {
   margin: 0;
   font-size: 22px;
   line-height: 1.2;
@@ -912,19 +910,6 @@ main {
   border-color: rgba(255, 209, 102, 0.72);
   background: rgba(255, 138, 42, 0.18);
   transform: translateY(-1px);
-}
-
-.portfolio-contact-strip {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 18px;
-  padding: 14px 16px;
-  border: 1px solid rgba(98, 230, 166, 0.24);
-  border-radius: var(--radius);
-  background: rgba(98, 230, 166, 0.08);
-  color: #dff7ec;
-  line-height: 1.6;
 }
 
 .content-page {
@@ -1552,12 +1537,6 @@ dd {
     overflow: auto;
   }
 
-  .portfolio-jump {
-    bottom: 12px;
-    min-height: 36px;
-    padding: 7px 11px;
-  }
-
   .home-game-actions button {
     width: 42px;
     height: 42px;
@@ -1690,19 +1669,11 @@ dd {
     margin-top: 8px;
   }
 
-  .portfolio-section {
-    padding: 34px 14px 44px;
-  }
-
-  .portfolio-card-visual {
-    min-height: 96px;
+  .portfolio-landing {
+    padding: 30px 14px 42px;
   }
 
   .portfolio-actions {
     grid-template-columns: 1fr;
-  }
-
-  .portfolio-contact-strip {
-    align-items: flex-start;
   }
 }

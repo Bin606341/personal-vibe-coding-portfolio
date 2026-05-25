@@ -14,23 +14,12 @@ const renderRoute = (path = '/') =>
   );
 
 describe('HoopVerse routes', () => {
-  it('renders the home route with the charge-shot wall game', () => {
+  it('renders the portfolio landing as the home route', () => {
     renderRoute('/');
 
-    expect(screen.getByRole('heading', { name: /Hold-to-shoot basketball/i })).toBeInTheDocument();
-    expect(screen.getByRole('application', { name: 'Basketball charge shot game area' })).toBeInTheDocument();
-    expect(screen.getAllByText(/WORLD 1/i).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText(/SHOOT!/i).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText(/Click anywhere/i).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByRole('button', { name: 'Toggle sound' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Reset shot' })).toBeInTheDocument();
-  });
-
-  it('renders a portfolio section with live project links', () => {
-    renderRoute('/');
-
-    expect(screen.getByRole('heading', { name: '个人作品集' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '选择你想看的作品' })).toBeInTheDocument();
     expect(screen.getAllByTestId('portfolio-project-card')).toHaveLength(3);
+    expect(screen.getByRole('link', { name: /进入 篮球网站/i })).toHaveAttribute('href', '/basketball');
     expect(screen.getByRole('link', { name: /在线预览 3D小球弹跳/i })).toHaveAttribute(
       'href',
       'https://bouncing-ball-3d.vercel.app/',
@@ -39,10 +28,19 @@ describe('HoopVerse routes', () => {
       'href',
       'https://fitness-website-ih2m66.vercel.app/',
     );
-    expect(screen.getByRole('link', { name: /源码 3D小球弹跳/i })).toHaveAttribute(
-      'href',
-      'https://github.com/Bin606341/bouncing-ball-3d',
-    );
+    expect(screen.queryByRole('application', { name: 'Basketball charge shot game area' })).not.toBeInTheDocument();
+  });
+
+  it('renders the basketball route with the charge-shot wall game', () => {
+    renderRoute('/basketball');
+
+    expect(screen.getByRole('heading', { name: /Hold-to-shoot basketball/i })).toBeInTheDocument();
+    expect(screen.getByRole('application', { name: 'Basketball charge shot game area' })).toBeInTheDocument();
+    expect(screen.getAllByText(/WORLD 1/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/SHOOT!/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/Click anywhere/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole('button', { name: 'Toggle sound' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reset shot' })).toBeInTheDocument();
   });
 
   it('renders current players with a complete 30 team grid', () => {
