@@ -13,10 +13,12 @@ const renderRoute = (path = '/') =>
     </MemoryRouter>,
   );
 
-describe('HoopVerse routes', () => {
-  it('renders the portfolio landing as the home route', () => {
+describe('Portfolio-Bin routes', () => {
+  it('renders the portfolio landing as the home route without basketball section navigation', () => {
     renderRoute('/');
 
+    expect(screen.getByText('Portfolio-Bin')).toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: '主导航' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '选择你想看的作品' })).toBeInTheDocument();
     expect(screen.getAllByTestId('portfolio-project-card')).toHaveLength(3);
     expect(screen.getByRole('link', { name: /进入 篮球网站/i })).toHaveAttribute('href', '/basketball');
@@ -34,6 +36,7 @@ describe('HoopVerse routes', () => {
   it('renders the basketball route with the charge-shot wall game', () => {
     renderRoute('/basketball');
 
+    expect(screen.getByRole('navigation', { name: '主导航' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /Hold-to-shoot basketball/i })).toBeInTheDocument();
     expect(screen.getByRole('application', { name: 'Basketball charge shot game area' })).toBeInTheDocument();
     expect(screen.getAllByText(/WORLD 1/i).length).toBeGreaterThanOrEqual(1);

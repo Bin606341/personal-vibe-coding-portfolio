@@ -1,5 +1,5 @@
 import { Trophy, Dumbbell, ClipboardList, Flame, Users, Home, Goal } from 'lucide-react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 
 const navItems = [
   { to: '/', label: '作品集', icon: Home },
@@ -11,35 +11,42 @@ const navItems = [
   { to: '/clutch', label: '经典绝杀', icon: Flame },
 ];
 
-export const Layout = () => (
-  <div className="app-shell">
-    <header className="topbar">
-      <NavLink className="brand" to="/" aria-label="返回首页">
-        <span className="brand-mark">HV</span>
-        <span>
-          <strong>Portfolio</strong>
-          <small>前端作品集</small>
-        </span>
-      </NavLink>
-      <nav className="main-nav" aria-label="主导航">
-        {navItems.map((item) => {
-          const Icon = item.icon;
+export const Layout = () => {
+  const { pathname } = useLocation();
+  const isPortfolioHome = pathname === '/';
 
-          return (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
-            >
-              <Icon size={17} aria-hidden="true" />
-              <span>{item.label}</span>
-            </NavLink>
-          );
-        })}
-      </nav>
-    </header>
-    <main>
-      <Outlet />
-    </main>
-  </div>
-);
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <NavLink className="brand" to="/" aria-label="返回首页">
+          <span className="brand-mark">PB</span>
+          <span>
+            <strong>Portfolio-Bin</strong>
+            <small>个人作品集</small>
+          </span>
+        </NavLink>
+        {!isPortfolioHome && (
+          <nav className="main-nav" aria-label="主导航">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+
+              return (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+                >
+                  <Icon size={17} aria-hidden="true" />
+                  <span>{item.label}</span>
+                </NavLink>
+              );
+            })}
+          </nav>
+        )}
+      </header>
+      <main>
+        <Outlet />
+      </main>
+    </div>
+  );
+};

@@ -14,6 +14,9 @@ const holdOnBoard = async (board: Locator, at: { x: number; y: number }) => {
 test('portfolio landing presents three project choices', async ({ page }) => {
   await page.goto('/');
 
+  await expect(page).toHaveTitle('Portfolio-Bin');
+  await expect(page.getByText('Portfolio-Bin')).toBeVisible();
+  await expect(page.locator('.main-nav')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: '选择你想看的作品' })).toBeVisible();
   await expect(page.getByTestId('portfolio-project-card')).toHaveCount(3);
   await expect(page.getByRole('link', { name: /进入 篮球网站/ })).toHaveAttribute('href', '/basketball');
@@ -102,8 +105,6 @@ test('home game charges while holding and launches on release with a short dashe
 });
 
 test('top navigation reaches all content sections', async ({ page }) => {
-  await page.goto('/');
-
   const navTargets = [
     ['/basketball', '[data-testid="home-game-board"]'],
     ['/players', '[data-testid="team-card"]'],
@@ -114,6 +115,7 @@ test('top navigation reaches all content sections', async ({ page }) => {
   ] as const;
 
   for (const [path, selector] of navTargets) {
+    await page.goto('/basketball');
     await page.locator(`.main-nav a[href="${path}"]`).click();
     await expect(page).toHaveURL(new RegExp(`${path}$`));
     await expect(page.locator(selector).first()).toBeVisible();
