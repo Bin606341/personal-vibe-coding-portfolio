@@ -1,4 +1,4 @@
-import { ArrowRight, Dumbbell, ExternalLink, Gamepad2, Github, Trophy } from 'lucide-react';
+import { ArrowRight, Dumbbell, ExternalLink, Gamepad2, Github, Trophy, UsersRound } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 type PortfolioProject = {
@@ -12,7 +12,7 @@ type PortfolioProject = {
   sourceUrl: string;
   isInternal?: boolean;
   Icon: typeof Trophy;
-  accent: 'orange' | 'blue' | 'green';
+  accent: 'orange' | 'blue' | 'green' | 'teal';
 };
 
 const portfolioProjects: PortfolioProject[] = [
@@ -53,6 +53,18 @@ const portfolioProjects: PortfolioProject[] = [
     Icon: Dumbbell,
     accent: 'green',
   },
+  {
+    title: '聚会游戏图鉴',
+    category: '多人游戏工具站',
+    summary: '面向朋友聚会场景整理的小游戏图鉴，提供分类筛选、搜索和清晰的游戏规则卡片。',
+    highlights: ['游戏卡片检索与分类', '动漫像素风视觉表达', '适合多人破冰场景'],
+    tech: ['React', 'TypeScript', 'Vite'],
+    preview: '/portfolio/party-game-preview.png',
+    liveUrl: 'https://party-game-website-ten.vercel.app/',
+    sourceUrl: 'https://github.com/Bin606341/party-game-website',
+    Icon: UsersRound,
+    accent: 'teal',
+  },
 ];
 
 export const PortfolioLanding = () => (
@@ -62,7 +74,7 @@ export const PortfolioLanding = () => (
         <span className="eyebrow">Frontend Portfolio</span>
         <h1 id="portfolio-landing-heading">选择你想看的作品</h1>
         <p>
-          这里是我的个人作品集入口。三个项目分别展示 React 互动网站、网页小游戏和静态展示网站，
+          这里是我的个人作品集入口。四个项目分别展示 React 互动网站、网页小游戏、静态展示网站和多人游戏工具，
           点击卡片即可进入对应线上作品。
         </p>
       </div>

@@ -20,7 +20,7 @@ describe('Portfolio-Bin routes', () => {
     expect(screen.getByText('Portfolio-Bin')).toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: '主导航' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '选择你想看的作品' })).toBeInTheDocument();
-    expect(screen.getAllByTestId('portfolio-project-card')).toHaveLength(3);
+    expect(screen.getAllByTestId('portfolio-project-card')).toHaveLength(4);
     expect(screen.getByRole('link', { name: /进入 篮球网站/i })).toHaveAttribute('href', '/basketball');
     expect(screen.getByRole('link', { name: /在线预览 3D小球弹跳/i })).toHaveAttribute(
       'href',
@@ -29,6 +29,10 @@ describe('Portfolio-Bin routes', () => {
     expect(screen.getByRole('link', { name: /在线预览 健身网站/i })).toHaveAttribute(
       'href',
       'https://fitness-website-ih2m66.vercel.app/',
+    );
+    expect(screen.getByRole('link', { name: /在线预览 聚会游戏图鉴/i })).toHaveAttribute(
+      'href',
+      'https://party-game-website-ten.vercel.app/',
     );
     expect(screen.queryByRole('application', { name: '篮球蓄力投篮小游戏区域' })).not.toBeInTheDocument();
   });

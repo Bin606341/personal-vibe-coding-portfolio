@@ -783,7 +783,7 @@ main {
 
 .portfolio-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 16px;
 }
 
@@ -850,6 +850,10 @@ main {
 
 .portfolio-project-card.accent-green {
   border-color: rgba(98, 230, 166, 0.28);
+}
+
+.portfolio-project-card.accent-teal {
+  border-color: rgba(45, 212, 191, 0.3);
 }
 
 .portfolio-card-body {
