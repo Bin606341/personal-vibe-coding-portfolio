@@ -30,20 +30,20 @@ describe('Portfolio-Bin routes', () => {
       'href',
       'https://fitness-website-ih2m66.vercel.app/',
     );
-    expect(screen.queryByRole('application', { name: 'Basketball charge shot game area' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('application', { name: '篮球蓄力投篮小游戏区域' })).not.toBeInTheDocument();
   });
 
   it('renders the basketball route with the charge-shot wall game', () => {
     renderRoute('/basketball');
 
     expect(screen.getByRole('navigation', { name: '主导航' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /Hold-to-shoot basketball/i })).toBeInTheDocument();
-    expect(screen.getByRole('application', { name: 'Basketball charge shot game area' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /按住蓄力投篮小游戏/i })).toBeInTheDocument();
+    expect(screen.getByRole('application', { name: '篮球蓄力投篮小游戏区域' })).toBeInTheDocument();
     expect(screen.getAllByText(/WORLD 1/i).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText(/SHOOT!/i).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText(/Click anywhere/i).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByRole('button', { name: 'Toggle sound' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Reset shot' })).toBeInTheDocument();
+    expect(screen.getAllByText(/投篮/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/按住球场/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole('button', { name: '切换声音' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重置投篮' })).toBeInTheDocument();
   });
 
   it('renders current players with a complete 30 team grid', () => {

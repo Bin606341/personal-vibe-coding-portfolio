@@ -246,7 +246,7 @@ export const HomeScene = () => {
   const [particles, setParticles] = useState<ConfettiParticle[]>([]);
   const [sfxEnabled, setSfxEnabled] = useState(true);
   const [showHelp, setShowHelp] = useState(true);
-  const [statusText, setStatusText] = useState('Click anywhere to charge. Move the mouse to aim, then release.');
+  const [statusText, setStatusText] = useState('按住球场蓄力，移动鼠标或手指瞄准篮筐，松开后投篮。');
 
   const { stage, levelIndex } = useMemo(() => getStageProgress(levelCursor), [levelCursor]);
   const level = useMemo(() => parseLevelDefinition(stage.levels[levelIndex]), [levelIndex, stage.levels]);
@@ -285,7 +285,7 @@ export const HomeScene = () => {
     active: index <= levelIndex,
   }));
   const currentBall = ball ?? ballRef.current;
-  const stickerText = isCharging ? 'HOLD' : 'SHOOT!';
+  const stickerText = isCharging ? '蓄力中' : '投篮';
 
   useEffect(() => {
     ballRef.current = ball;
@@ -340,7 +340,7 @@ export const HomeScene = () => {
       completeTimeoutRef.current = null;
     }
     if (announce) {
-      setStatusText('Shot reset. Click anywhere to charge again.');
+      setStatusText('已重置。按住球场重新蓄力，瞄准后松开投篮。');
       playCue('reset');
     }
   };
@@ -348,7 +348,7 @@ export const HomeScene = () => {
   useEffect(() => {
     resetBall(false);
     setAttempts(0);
-    setStatusText(`${stage.label} - ${level.label} loaded. Click anywhere to charge, then release to shoot.`);
+    setStatusText(`${stage.label} - ${level.label} 已载入。按住蓄力，移动瞄准，松开投篮。`);
   }, [level.label, level.id, stage.label]);
 
   useEffect(() => {
@@ -376,7 +376,7 @@ export const HomeScene = () => {
         if (result.bounced && timestamp - lastBounceAtRef.current > 90) {
           lastBounceAtRef.current = timestamp;
           playCue('bounce');
-          setStatusText('Nice bounce. Use the blocks to guide the ball.');
+          setStatusText('反弹不错。利用墙面改变路线，把球送进篮筐。');
         }
 
         if (result.scored) {
@@ -384,7 +384,7 @@ export const HomeScene = () => {
           setBall(null);
           setCompleteText('YES!');
           setAnnounceScore(true);
-          setStatusText('Bank shot scored. Next level is loading.');
+          setStatusText('打板命中！下一关即将载入。');
           const nextParticles = createConfetti(physicsLevel.hoop.center, 44);
           particlesRef.current = nextParticles;
           setParticles(nextParticles);
@@ -403,7 +403,7 @@ export const HomeScene = () => {
         } else if (result.killed) {
           ballRef.current = null;
           setBall(null);
-          setStatusText('Missed. Try a different aim angle or hold length.');
+          setStatusText('没进。试试调整瞄准角度，或改变蓄力时间。');
         } else {
           ballRef.current = result.ball;
           setBall(result.ball);
@@ -450,7 +450,7 @@ export const HomeScene = () => {
     updateAimPoint(point);
     setIsCharging(true);
     setChargeMs(0);
-    setStatusText('Charging. Move the mouse to aim, then release to shoot.');
+    setStatusText('正在蓄力。移动鼠标或手指瞄准，松开即可出手。');
     playCue('charge');
   };
 
@@ -482,19 +482,19 @@ export const HomeScene = () => {
     ballRef.current = createdBall;
     setBall(createdBall);
     setAttempts((current) => current + 1);
-    setStatusText(`Shot released at ${power}%. Track the arc and adjust your aim.`);
+    setStatusText(`以 ${power}% 力量出手。观察弧线，下一球微调角度和力度。`);
   };
 
   const toggleAudio = () => {
     const nextEnabled = !audioEnabled;
     setSfxEnabled(nextEnabled);
     setMusicEnabled(nextEnabled);
-    setStatusText(nextEnabled ? 'Sound on.' : 'Sound off.');
+    setStatusText(nextEnabled ? '声音已开启。' : '声音已关闭。');
   };
 
   return (
     <section className="home-game-page">
-      <h1 className="sr-only">Hold-to-shoot basketball</h1>
+      <h1 className="sr-only">按住蓄力投篮小游戏</h1>
       <div className="home-game-shell">
         <div
           className="home-game-board"
@@ -504,7 +504,7 @@ export const HomeScene = () => {
           onPointerCancel={onPointerUp}
           onPointerLeave={onPointerUp}
           role="application"
-          aria-label="Basketball charge shot game area"
+          aria-label="篮球蓄力投篮小游戏区域"
           data-testid="home-game-board"
         >
           <div className="board-top-overlay">
@@ -532,16 +532,16 @@ export const HomeScene = () => {
             </div>
 
             <div className="home-game-actions">
-              <button type="button" onClick={() => resetBall()} aria-label="Reset shot">
+              <button type="button" onClick={() => resetBall()} aria-label="重置投篮">
                 <RotateCcw size={20} />
               </button>
-              <button type="button" onClick={toggleAudio} aria-label="Toggle sound">
+              <button type="button" onClick={toggleAudio} aria-label="切换声音">
                 {audioEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
               </button>
-              <button type="button" onClick={() => setShowHelp((current) => !current)} aria-label="Toggle help">
+              <button type="button" onClick={() => setShowHelp((current) => !current)} aria-label="切换玩法提示">
                 <Menu size={20} />
               </button>
-              <button type="button" onClick={() => navigate('/')} aria-label="Home">
+              <button type="button" onClick={() => navigate('/')} aria-label="返回作品集主页">
                 <Home size={20} />
               </button>
             </div>
@@ -757,21 +757,22 @@ export const HomeScene = () => {
               <span className="charge-fill" style={{ width: `${chargePercent}%` }} />
             </div>
             <div className="charge-labels">
-              <span>soft</span>
-              <strong>{isCharging ? `${chargePercent}%` : 'hold'}</strong>
-              <span>hard</span>
+              <span>轻投</span>
+              <strong>{isCharging ? `${chargePercent}%` : '按住'}</strong>
+              <span>重投</span>
             </div>
           </div>
 
           <div className="board-bottom-overlay">
             <div className="status-pill" data-testid="home-game-status">
-              <strong>{announceScore ? 'Scored' : `Attempt ${attempts}`}</strong>
+              <strong>{announceScore ? '命中' : `第 ${attempts} 球`}</strong>
               <span>{statusText}</span>
             </div>
             {showHelp ? (
               <div className="hint-pill">
-                <span>Click anywhere to charge, move the mouse to aim, then release.</span>
-                <span>Sound: {audioEnabled ? 'on' : 'off'}</span>
+                <span>玩法：按住球场开始蓄力，移动鼠标或手指瞄准篮筐，松开后投篮。</span>
+                <span>目标：用合适力度和墙面反弹，把球投进篮筐。</span>
+                <span>声音：{audioEnabled ? '开' : '关'}</span>
               </div>
             ) : null}
           </div>
